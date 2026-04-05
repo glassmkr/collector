@@ -1,0 +1,112 @@
+#!/usr/bin/env node
+
+import { loadConfig } from "./config.js";
+import { collectSystem } from "./collect/system.js";
+import { collectCpu } from "./collect/cpu.js";
+import { collectMemory } from "./collect/memory.js";
+import { collectDisks } from "./collect/disks.js";
+import { collectSmart } from "./collect/smart.js";
+import { collectNetwork } from "./collect/network.js";
+import { collectRaid } from "./collect/raid.js";
+import { collectIpmi } from "./collect/ipmi.js";
+import { collectOsAlerts } from "./collect/os-alerts.js";
+import { evaluateAlerts } from "./alerts/evaluator.js";
+import { updateAlertState } from "./alerts/state.js";
+import { sendTelegram } from "./notify/telegram.js";
+import { sendSlack } from "./notify/slack.js";
+import { sendEmail } from "./notify/email.js";
+import { pushToForge } from "./push/forge.js";
+import type { Snapshot, IpmiInfo } from "./lib/types.js";
+
+const configPath = process.argv[2] || "/etc/glassmkr/collector.yaml";
+const config = loadConfig(configPath);
+
+console.log(`[collector] Starting. Server: ${config.server_name}. Interval: ${config.collection.interval_seconds}s`);
+console.log(`[collector] IPMI: ${config.collection.ipmi ? "enabled" : "disabled"}, SMART: ${config.collection.smart ? "enabled" : "disabled"}`);
+console.log(`[collector] Forge: ${config.forge.enabled ? config.forge.url : "disabled"}`);
+
+const emptyIpmi: IpmiInfo = { available: false, sensors: [], ecc_errors: { correctable: 0, uncorrectable: 0 }, sel_entries_count: 0 };
+
+async function collect() {
+  const startTime = Date.now();
+  console.log(`[collector] Collecting...`);
+
+  const [system, cpu, memory, disks, smart, network, raid, ipmi, osAlerts] = await Promise.all([
+    collectSystem(),
+    collectCpu(),
+    collectMemory(),
+    collectDisks(),
+    config.collection.smart ? collectSmart() : Promise.resolve([]),
+    collectNetwork(),
+    collectRaid(),
+    config.collection.ipmi ? collectIpmi() : Promise.resolve(emptyIpmi),
+    collectOsAlerts(),
+  ]);
+
+  const snapshot: Snapshot = {
+    collector_version: "0.1.0",
+    timestamp: new Date().toISOString(),
+    system, cpu, memory, disks, smart, network, raid, ipmi, os_alerts: osAlerts,
+  };
+
+  // Evaluate alerts
+  const alertResults = evaluateAlerts(snapshot, config.thresholds);
+  const { newAlerts, resolvedAlerts } = updateAlertState(alertResults);
+
+  const elapsed = Date.now() - startTime;
+  console.log(`[collector] Collected in ${elapsed}ms. Alerts: ${alertResults.length} active, ${newAlerts.length} new, ${resolvedAlerts.length} resolved`);
+
+  // Send notifications for new/resolved alerts
+  if (newAlerts.length > 0 || resolvedAlerts.length > 0) {
+    if (config.channels.telegram.enabled && config.channels.telegram.bot_token && config.channels.telegram.chat_id) {
+      await sendTelegram(config.channels.telegram.bot_token, config.channels.telegram.chat_id, newAlerts, resolvedAlerts, config.server_name);
+    }
+    if (config.channels.slack.enabled && config.channels.slack.webhook_url) {
+      await sendSlack(config.channels.slack.webhook_url, newAlerts, resolvedAlerts, config.server_name);
+    }
+    if (config.channels.email.enabled && config.channels.email.to) {
+      await sendEmail(config.channels.email, newAlerts, resolvedAlerts, config.server_name);
+    }
+  }
+
+  // Push to Forge (non-blocking)
+  if (config.forge.enabled && config.forge.api_key) {
+    pushToForge(config.forge.url, config.forge.api_key, snapshot);
+  }
+
+  // Print summary on first run
+  if (firstRun) {
+    firstRun = false;
+    console.log("");
+    console.log("=== First collection complete ===");
+    console.log(`Server: ${system.hostname} (${system.os})`);
+    console.log(`CPU:    ${cpu.user_percent.toFixed(1)}% (load: ${cpu.load_1m})`);
+    const ramPct = memory.total_mb > 0 ? ((memory.used_mb / memory.total_mb) * 100).toFixed(1) : "0";
+    console.log(`RAM:    ${ramPct}% (${memory.used_mb} / ${memory.total_mb} MB)`);
+    if (disks.length > 0) console.log(`Disk:   ${disks[0].percent_used}% (${disks[0].mount})`);
+    console.log(`SMART:  ${smart.length > 0 ? `${smart.length} drive(s) checked` : "not available"}`);
+    console.log(`Network: ${network.map((n) => n.interface).join(", ") || "none detected"}`);
+    console.log(`IPMI:   ${ipmi.available ? "available" : "not available"}`);
+    console.log(`Active alerts: ${alertResults.length}`);
+    console.log(`Forge: ${config.forge.enabled ? "enabled" : "disabled"}`);
+    console.log("");
+  }
+}
+
+let firstRun = true;
+
+// Run immediately
+collect();
+
+// Then on interval
+setInterval(collect, config.collection.interval_seconds * 1000);
+
+process.on("SIGTERM", () => {
+  console.log("[collector] Received SIGTERM, shutting down");
+  process.exit(0);
+});
+
+process.on("SIGINT", () => {
+  console.log("[collector] Received SIGINT, shutting down");
+  process.exit(0);
+});
