@@ -1,11 +1,11 @@
 {
-  "name": "@glassmkr/collector",
+  "name": "@glassmkr/crucible",
   "version": "0.1.0",
   "description": "Lightweight bare metal server monitoring. IPMI, SMART, OS, network. Opinionated alerts.",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "glassmkr-collector": "./dist/index.js"
+    "glassmkr-crucible": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc && chmod 755 dist/index.js",
@@ -16,7 +16,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/glassmkr/collector.git"
+    "url": "https://github.com/glassmkr/crucible.git"
   },
   "dependencies": {
     "yaml": "^2.4.0",
