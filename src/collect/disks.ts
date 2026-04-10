@@ -29,17 +29,19 @@ export async function collectDisks(): Promise<DiskInfo[]> {
   const dfOutput = await run("df", ["-B1", "--output=source,target,size,used,avail,pcent", "-x", "tmpfs", "-x", "devtmpfs", "-x", "squashfs"]);
   if (!dfOutput) return [];
 
-  // Get inode data
-  const dfInodeOutput = await run("df", ["-i", "--output=source,target,itotal,iused,iavail", "-x", "tmpfs", "-x", "devtmpfs", "-x", "squashfs"]);
+  // Get inode data (df -i without --output, parse standard columns)
+  const dfInodeOutput = await run("df", ["-i", "-x", "tmpfs", "-x", "devtmpfs", "-x", "squashfs"]);
   const inodeMap = new Map<string, { total: number; used: number; free: number }>();
   if (dfInodeOutput) {
+    // Standard df -i output: Filesystem Inodes IUsed IFree IUse% Mounted_on
     for (const line of dfInodeOutput.trim().split("\n").slice(1)) {
       const parts = line.trim().split(/\s+/);
-      if (parts.length < 5) continue;
-      inodeMap.set(parts[1], {
-        total: parseInt(parts[2]) || 0,
-        used: parseInt(parts[3]) || 0,
-        free: parseInt(parts[4]) || 0,
+      if (parts.length < 6) continue;
+      const mountPoint = parts[5];
+      inodeMap.set(mountPoint, {
+        total: parseInt(parts[1]) || 0,
+        used: parseInt(parts[2]) || 0,
+        free: parseInt(parts[3]) || 0,
       });
     }
   }
