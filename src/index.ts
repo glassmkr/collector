@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { loadConfig } from "./config.js";
+import { checkForUpdates } from "./lib/version-check.js";
+import { startMetricsServer, updateMetrics } from "./metrics-server.js";
 import { collectSystem } from "./collect/system.js";
 import { collectCpu } from "./collect/cpu.js";
 import { collectMemory } from "./collect/memory.js";
@@ -15,7 +17,8 @@ import { updateAlertState } from "./alerts/state.js";
 import { sendTelegram } from "./notify/telegram.js";
 import { sendSlack } from "./notify/slack.js";
 import { sendEmail } from "./notify/email.js";
-import { pushToForge } from "./push/forge.js";
+import { pushToForge, initForgeAgent } from "./push/forge.js";
+import { collectSecurity, type SecurityData } from "./collect/security.js";
 import type { Snapshot, IpmiInfo } from "./lib/types.js";
 
 const configPath = process.argv[2] || "/etc/glassmkr/collector.yaml";
@@ -24,8 +27,24 @@ const config = loadConfig(configPath);
 console.log(`[collector] Starting. Server: ${config.server_name}. Interval: ${config.collection.interval_seconds}s`);
 console.log(`[collector] IPMI: ${config.collection.ipmi ? "enabled" : "disabled"}, SMART: ${config.collection.smart ? "enabled" : "disabled"}`);
 console.log(`[collector] Forge: ${config.forge.enabled ? config.forge.url : "disabled"}`);
+console.log(`[collector] Prometheus: ${config.prometheus.enabled ? `:${config.prometheus.port}/metrics` : "disabled"}`);
 
-const emptyIpmi: IpmiInfo = { available: false, sensors: [], ecc_errors: { correctable: 0, uncorrectable: 0 }, sel_entries_count: 0 };
+// Start Prometheus metrics server if enabled
+if (config.prometheus.enabled) {
+  startMetricsServer(config.prometheus.port);
+}
+
+// Initialize TLS pinning for Forge if configured
+if (config.forge.tls_pin) {
+  initForgeAgent(config.forge.tls_pin);
+  console.log("[collector] TLS pinning enabled for Forge");
+}
+
+const emptyIpmi: IpmiInfo = { available: false, sensors: [], ecc_errors: { correctable: 0, uncorrectable: 0 }, sel_entries_count: 0, sel_events_recent: [], fans: [] };
+
+// Security checks run once per hour (every 12th cycle at 5-min intervals)
+let securityCycleCount = 0;
+let cachedSecurity: SecurityData | undefined;
 
 async function collect() {
   const startTime = Date.now();
@@ -43,11 +62,22 @@ async function collect() {
     collectOsAlerts(),
   ]);
 
+  // Security checks: run once per hour, reuse cached data between runs
+  securityCycleCount++;
+  if (securityCycleCount >= 12 || !cachedSecurity) {
+    securityCycleCount = 0;
+    try { cachedSecurity = await collectSecurity(); } catch (err) { console.error("[security] Collection error:", err); }
+  }
+
   const snapshot: Snapshot = {
-    collector_version: "0.1.0",
+    collector_version: "0.2.0",
     timestamp: new Date().toISOString(),
     system, cpu, memory, disks, smart, network, raid, ipmi, os_alerts: osAlerts,
+    security: cachedSecurity,
   };
+
+  // Update Prometheus metrics
+  updateMetrics(snapshot);
 
   // Evaluate alerts
   const alertResults = evaluateAlerts(snapshot, config.thresholds);
@@ -73,6 +103,9 @@ async function collect() {
   if (config.forge.enabled && config.forge.api_key) {
     pushToForge(config.forge.url, config.forge.api_key, snapshot);
   }
+
+  // Check for updates (every 6 hours, non-blocking)
+  checkForUpdates(config.forge.enabled ? config.forge.url : undefined);
 
   // Print summary on first run
   if (firstRun) {

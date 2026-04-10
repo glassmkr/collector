@@ -1,5 +1,22 @@
 import type { AlertResult } from "../lib/types.js";
 
+const PRIORITY_MAP: Record<string, string> = {
+  raid_degraded: "P1", smart_failing: "P1", ecc_errors: "P1", psu_redundancy_loss: "P1", ipmi_fan_failure: "P1",
+  oom_kills: "P2", ram_high: "P2", disk_space_high: "P2", ipmi_sel_critical: "P2", disk_io_errors: "P2", zfs_pool_unhealthy: "P2",
+  cpu_iowait_high: "P3", nvme_wear_high: "P3", disk_latency_high: "P3", cpu_temperature_high: "P3",
+  ssh_root_password: "P3", pending_security_updates: "P3", kernel_vulnerabilities: "P3", zfs_scrub_errors: "P3",
+  swap_active: "P4", no_firewall: "P4", kernel_needs_reboot: "P4", unattended_upgrades_disabled: "P4",
+  interface_errors: "P4", link_speed_mismatch: "P4", interface_saturation: "P4",
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  P1: "\u{1F534} P1 Urgent", P2: "\u{1F7E0} P2 High", P3: "\u{1F7E1} P3 Medium", P4: "\u{1F535} P4 Low",
+};
+
+function getPriority(alertType: string): string {
+  return PRIORITY_MAP[alertType] || "P3";
+}
+
 export async function sendTelegram(
   botToken: string,
   chatId: string,
@@ -10,16 +27,19 @@ export async function sendTelegram(
   const parts: string[] = [];
 
   if (newAlerts.length > 0) {
-    const criticals = newAlerts.filter((a) => a.severity === "critical");
-    const warnings = newAlerts.filter((a) => a.severity === "warning");
-
-    if (criticals.length > 0) {
-      parts.push(`\u{1F534} <b>${criticals.length} CRITICAL</b> on <b>${serverName}</b>:\n`);
-      for (const a of criticals) parts.push(`  \u2022 <b>${a.title}</b>\n  ${a.recommendation}\n`);
+    // Group by priority
+    const byPriority: Record<string, AlertResult[]> = {};
+    for (const a of newAlerts) {
+      const p = getPriority(a.type);
+      if (!byPriority[p]) byPriority[p] = [];
+      byPriority[p].push(a);
     }
-    if (warnings.length > 0) {
-      parts.push(`\u{1F7E1} <b>${warnings.length} WARNING</b> on <b>${serverName}</b>:\n`);
-      for (const a of warnings) parts.push(`  \u2022 <b>${a.title}</b>\n  ${a.recommendation}\n`);
+
+    for (const p of ["P1", "P2", "P3", "P4"]) {
+      const alerts = byPriority[p];
+      if (!alerts?.length) continue;
+      parts.push(`${PRIORITY_LABELS[p]} on <b>${serverName}</b>:\n`);
+      for (const a of alerts) parts.push(`  \u2022 <b>${a.title}</b>\n  ${a.recommendation}\n`);
     }
   }
 
