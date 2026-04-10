@@ -10,6 +10,16 @@ export interface Snapshot {
   raid: RaidInfo[];
   ipmi: IpmiInfo;
   os_alerts: OsAlerts;
+  security?: SecurityData;
+}
+
+export interface SecurityData {
+  ssh: { permitRootLogin: string; passwordAuthentication: string; rootPasswordExposed: boolean } | null;
+  firewall: { active: boolean; source: string; details: string };
+  pending_updates: { distro: string; pendingCount: number; available: boolean } | null;
+  kernel_vulns: Array<{ name: string; status: string; mitigated: boolean }>;
+  kernel_reboot: { running: string; installed: string; needsReboot: boolean } | null;
+  auto_updates: { configured: boolean; mechanism: string; details: string };
 }
 
 export interface SystemInfo {
@@ -20,6 +30,16 @@ export interface SystemInfo {
   uptime_seconds: number;
 }
 
+export interface CpuCoreInfo {
+  core: number;
+  user_percent: number;
+  system_percent: number;
+  iowait_percent: number;
+  idle_percent: number;
+  irq_percent: number;
+  softirq_percent: number;
+}
+
 export interface CpuInfo {
   user_percent: number;
   system_percent: number;
@@ -28,6 +48,7 @@ export interface CpuInfo {
   load_1m: number;
   load_5m: number;
   load_15m: number;
+  cores?: CpuCoreInfo[];
 }
 
 export interface MemoryInfo {
@@ -81,6 +102,22 @@ export interface RaidInfo {
   failed_disks: string[];
 }
 
+export interface SelEvent {
+  id: number;
+  timestamp: string;
+  sensor: string;
+  sensor_type: string;
+  event: string;
+  direction: string;
+  severity: string;
+}
+
+export interface FanStatus {
+  name: string;
+  rpm: number;
+  status: string;
+}
+
 export interface IpmiInfo {
   available: boolean;
   sensors: Array<{
@@ -92,6 +129,8 @@ export interface IpmiInfo {
   }>;
   ecc_errors: { correctable: number; uncorrectable: number };
   sel_entries_count: number;
+  sel_events_recent: SelEvent[];
+  fans: FanStatus[];
 }
 
 export interface OsAlerts {

@@ -181,4 +181,103 @@ export const allRules: AlertRule[] = [
       evidence: { failed: failed.map(p => ({ name: p.name, status: p.status })) },
       recommendation: "Replace failed PSU. Check power connections." }];
   }},
+  // 19. IPMI SEL critical events
+  { type: "ipmi_sel_critical", evaluate(snap) {
+    if (!snap.ipmi?.available || !snap.ipmi.sel_events_recent?.length) return [];
+    const critical = snap.ipmi.sel_events_recent.filter(e => e.severity === "critical" && e.direction === "Asserted");
+    if (critical.length === 0) return [];
+    const byType: Record<string, typeof critical> = {};
+    for (const e of critical) { if (!byType[e.sensor_type]) byType[e.sensor_type] = []; byType[e.sensor_type].push(e); }
+    const details = Object.entries(byType).map(([t, evts]) => `${t}: ${evts.map(e => `${e.sensor}: ${e.event}`).join(", ")}`).join("; ");
+    const recs: string[] = [];
+    if (byType.memory) recs.push("Memory errors: identify slot with `ipmitool sel elist | grep -i memory`. Schedule DIMM replacement.");
+    if (byType.power) recs.push("PSU event: check physical PSU and connections. Verify redundancy: `ipmitool chassis status`.");
+    if (byType.watchdog) recs.push("Watchdog reset: OS or BMC became unresponsive. Check dmesg for root cause.");
+    if (byType.processor) recs.push("CPU event: check for thermal throttling or MCE. Run `dmesg | grep -i mce`.");
+    if (recs.length === 0) recs.push("Review full SEL: `ipmitool sel elist`.");
+    return [{ type: "ipmi_sel_critical", severity: "critical",
+      title: `IPMI: ${critical.length} critical hardware event(s)`,
+      message: `BMC System Event Log: ${critical.length} critical event(s). ${details}`,
+      evidence: { critical_events: critical, sensor_types: Object.keys(byType) },
+      recommendation: recs.join(" ") }];
+  }},
+  // 20. Fan failure
+  { type: "ipmi_fan_failure", evaluate(snap) {
+    if (!snap.ipmi?.available || !snap.ipmi.fans?.length) return [];
+    const failed = snap.ipmi.fans.filter(f => f.status === "critical" || (f.rpm === 0 && f.status !== "absent"));
+    if (failed.length === 0) return [];
+    const total = snap.ipmi.fans.filter(f => f.status !== "absent").length;
+    const names = failed.map(f => `${f.name} (${f.rpm} RPM)`).join(", ");
+    return [{ type: "ipmi_fan_failure", severity: "critical",
+      title: `Fan failure: ${failed.length} of ${total} fans`,
+      message: `${failed.length} fan(s) stopped or critically slow: ${names}. Reduced cooling capacity.`,
+      evidence: { failed_fans: failed, total_fans: total, all_fans: snap.ipmi.fans.filter(f => f.status !== "absent") },
+      recommendation: "Check physical fans. Monitor temps: `ipmitool sdr type Temperature`. Replace failed fan module." }];
+  }},
+  // === Security (6) ===
+  // 21. SSH root password login
+  { type: "ssh_root_password", evaluate(snap) {
+    if (!snap.security?.ssh?.rootPasswordExposed) return [];
+    return [{ type: "ssh_root_password", severity: "warning",
+      title: "SSH root login with password enabled",
+      message: `PermitRootLogin is "${snap.security.ssh.permitRootLogin}" and PasswordAuthentication is "${snap.security.ssh.passwordAuthentication}". Root can be brute-forced over SSH.`,
+      evidence: { permitRootLogin: snap.security.ssh.permitRootLogin, passwordAuthentication: snap.security.ssh.passwordAuthentication },
+      recommendation: 'Set "PermitRootLogin prohibit-password" in /etc/ssh/sshd_config and restart sshd. Key-based root login still works.' }];
+  }},
+  // 22. No firewall
+  { type: "no_firewall", evaluate(snap) {
+    if (!snap.security || snap.security.firewall.active) return [];
+    return [{ type: "no_firewall", severity: "warning" as const,
+      title: "No firewall active",
+      message: "No active firewall rules detected (checked UFW, firewalld, nftables, iptables). All ports are exposed unless protected by network-level ACLs.",
+      evidence: { source: snap.security.firewall.source },
+      recommendation: 'Enable a firewall: "sudo ufw enable" (Debian/Ubuntu) or "sudo systemctl start firewalld" (RHEL/Rocky).' }];
+  }},
+  // 23. Pending security updates
+  { type: "pending_security_updates", evaluate(snap, t) {
+    if (!snap.security?.pending_updates?.available) return [];
+    const maxPending = 10;
+    if (snap.security.pending_updates.pendingCount <= maxPending) return [];
+    const d = snap.security.pending_updates;
+    return [{ type: "pending_security_updates", severity: "warning",
+      title: `${d.pendingCount} security updates pending`,
+      message: `${d.pendingCount} security updates pending on this ${d.distro} server.`,
+      evidence: { pendingCount: d.pendingCount, distro: d.distro },
+      recommendation: d.distro === "ubuntu" || d.distro === "debian" ? 'Apply with: "sudo apt-get upgrade"' : 'Apply with: "sudo dnf update --security"' }];
+  }},
+  // 24. Kernel vulnerabilities
+  { type: "kernel_vulnerabilities", evaluate(snap) {
+    if (!snap.security?.kernel_vulns?.length) return [];
+    const unmitigated = snap.security.kernel_vulns.filter(v => !v.mitigated);
+    if (unmitigated.length === 0) return [];
+    const details = unmitigated.map(v => `${v.name}: ${v.status}`).join("; ");
+    return [{ type: "kernel_vulnerabilities", severity: "warning",
+      title: `${unmitigated.length} CPU vulnerability mitigations missing`,
+      message: `Unmitigated: ${details}. Update the kernel and CPU microcode to apply mitigations.`,
+      evidence: { unmitigated, total: snap.security.kernel_vulns.length },
+      recommendation: 'Check: "grep . /sys/devices/system/cpu/vulnerabilities/*". Update kernel and microcode packages.' }];
+  }},
+  // 25. Kernel needs reboot
+  { type: "kernel_needs_reboot", evaluate(snap) {
+    if (!snap.security?.kernel_reboot?.needsReboot) return [];
+    const k = snap.security.kernel_reboot;
+    return [{ type: "kernel_needs_reboot", severity: "warning" as const,
+      title: "Reboot required for kernel update",
+      message: `Running kernel: ${k.running}. Installed kernel: ${k.installed}. A reboot is needed to apply the newer kernel.`,
+      evidence: { running: k.running, installed: k.installed },
+      recommendation: "Schedule a reboot to apply the newer kernel. Security patches may not be active until then." }];
+  }},
+  // 26. Unattended upgrades disabled
+  { type: "unattended_upgrades_disabled", evaluate(snap) {
+    if (!snap.security || snap.security.auto_updates.configured) return [];
+    const a = snap.security.auto_updates;
+    const hint = a.mechanism === "unattended-upgrades" ? 'Enable: "sudo dpkg-reconfigure -plow unattended-upgrades"'
+      : a.mechanism === "dnf-automatic" ? 'Enable: "sudo systemctl enable --now dnf-automatic-install.timer"'
+      : 'Install: "sudo apt install unattended-upgrades" (Debian/Ubuntu) or "sudo dnf install dnf-automatic" (RHEL/Rocky)';
+    return [{ type: "unattended_upgrades_disabled", severity: "warning" as const,
+      title: "Automatic security updates not configured",
+      message: `${a.details}. Without automatic updates, security patches must be applied manually.`,
+      evidence: { mechanism: a.mechanism, details: a.details },
+      recommendation: hint }];
+  }},
 ];

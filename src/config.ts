@@ -13,6 +13,7 @@ const ConfigSchema = z.object({
     enabled: z.boolean().default(false),
     url: z.string().default("https://forge.glassmkr.com"),
     api_key: z.string().default(""),
+    tls_pin: z.string().default(""),
   }).default({}),
   thresholds: z.object({
     ram_percent: z.number().default(90),
@@ -40,6 +41,10 @@ const ConfigSchema = z.object({
       enabled: z.boolean().default(false),
       webhook_url: z.string().default(""),
     }).default({}),
+  }).default({}),
+  prometheus: z.object({
+    enabled: z.boolean().default(false),
+    port: z.number().default(9101),
   }).default({}),
 });
 
