@@ -66,6 +66,11 @@ export interface DiskInfo {
   used_gb: number;
   available_gb: number;
   percent_used: number;
+  fstype?: string;
+  options?: string;
+  inodes_total?: number;
+  inodes_used?: number;
+  inodes_free?: number;
   io_read_mb_s?: number;
   io_write_mb_s?: number;
   latency_p99_ms?: number;
