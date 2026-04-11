@@ -169,7 +169,7 @@ function checkKernelVulnerabilities(): VulnerabilityStatus[] {
     return files.map((file) => {
       try {
         const status = readFileSync(`${vulnDir}/${file}`, "utf-8").trim();
-        const mitigated = status.startsWith("Not affected") || status.startsWith("Mitigation:");
+        const mitigated = status.includes("Not affected") || status.includes("Mitigation:");
         return { name: file, status, mitigated };
       } catch {
         return { name: file, status: "unknown", mitigated: true };
