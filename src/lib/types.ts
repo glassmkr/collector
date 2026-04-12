@@ -13,6 +13,7 @@ export interface Snapshot {
   security?: SecurityData;
   zfs?: ZfsData;
   io_errors?: { count: number; devices: string[] };
+  io_latency?: Array<{ device: string; avg_read_latency_ms: number | null; avg_write_latency_ms: number | null; read_iops: number; write_iops: number }>;
 }
 
 export interface ZfsPool {

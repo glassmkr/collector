@@ -34,6 +34,7 @@ import { pushToForge, initForgeAgent } from "./push/forge.js";
 import { collectSecurity, type SecurityData } from "./collect/security.js";
 import { collectZfs } from "./collect/zfs.js";
 import { collectIoErrors } from "./collect/io-errors.js";
+import { collectIoLatency } from "./collect/io-latency.js";
 import type { Snapshot, IpmiInfo } from "./lib/types.js";
 
 const configPath = process.argv[2] || "/etc/glassmkr/collector.yaml";
@@ -94,6 +95,7 @@ async function collect() {
   // ZFS and I/O errors: collect every cycle (lightweight checks)
   try { snapshot.zfs = await collectZfs() ?? undefined; } catch { /* skip if ZFS not available */ }
   try { snapshot.io_errors = await collectIoErrors() ?? undefined; } catch { /* skip on error */ }
+  try { snapshot.io_latency = collectIoLatency(); } catch { /* skip on error */ }
 
   // Update Prometheus metrics
   updateMetrics(snapshot);
