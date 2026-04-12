@@ -7,6 +7,16 @@ interface IfaceStats {
   tx_bytes: number; tx_packets: number; tx_errors: number; tx_drops: number;
 }
 
+// Previous cumulative counters for delta computation (persists in process memory across cycles)
+interface PreviousCounters {
+  rx_errors: number;
+  tx_errors: number;
+  rx_drops: number;
+  tx_drops: number;
+}
+
+const previousCounters = new Map<string, PreviousCounters>();
+
 function parseNetDev(): Record<string, IfaceStats> {
   const raw = readProcFile("/proc/net/dev") || "";
   const result: Record<string, IfaceStats> = {};
@@ -35,26 +45,65 @@ function getSpeed(iface: string): number {
   }
 }
 
+// Compute delta, handling counter wraps (current < previous means reset, use current as delta)
+function delta(current: number, previous: number): number {
+  if (current >= previous) return current - previous;
+  return current; // counter wrapped or reset
+}
+
 export async function collectNetwork(): Promise<NetworkInfo[]> {
   const stats1 = parseNetDev();
   await sleep(1000);
   const stats2 = parseNetDev();
 
+  const currentIfaces = new Set<string>();
   const results: NetworkInfo[] = [];
+
   for (const [name, s2] of Object.entries(stats2)) {
     const s1 = stats1[name];
     if (!s1) continue;
+    currentIfaces.add(name);
 
-    results.push({
-      interface: name,
-      speed_mbps: getSpeed(name),
-      rx_bytes_sec: s2.rx_bytes - s1.rx_bytes,
-      tx_bytes_sec: s2.tx_bytes - s1.tx_bytes,
+    const prev = previousCounters.get(name);
+
+    // Compute error/drop deltas (0 on first cycle after start or new interface)
+    let rxErrorsDelta = 0;
+    let txErrorsDelta = 0;
+    let rxDropsDelta = 0;
+    let txDropsDelta = 0;
+
+    if (prev) {
+      rxErrorsDelta = delta(s2.rx_errors, prev.rx_errors);
+      txErrorsDelta = delta(s2.tx_errors, prev.tx_errors);
+      rxDropsDelta = delta(s2.rx_drops, prev.rx_drops);
+      txDropsDelta = delta(s2.tx_drops, prev.tx_drops);
+    }
+
+    // Store current cumulative values for next cycle
+    previousCounters.set(name, {
       rx_errors: s2.rx_errors,
       tx_errors: s2.tx_errors,
       rx_drops: s2.rx_drops,
       tx_drops: s2.tx_drops,
     });
+
+    results.push({
+      interface: name,
+      speed_mbps: getSpeed(name),
+      rx_bytes_sec: s2.rx_bytes - s1.rx_bytes, // already a 1-second delta
+      tx_bytes_sec: s2.tx_bytes - s1.tx_bytes,
+      rx_errors: rxErrorsDelta,
+      tx_errors: txErrorsDelta,
+      rx_drops: rxDropsDelta,
+      tx_drops: txDropsDelta,
+    });
+  }
+
+  // Remove stale interfaces that disappeared
+  for (const name of previousCounters.keys()) {
+    if (!currentIfaces.has(name)) {
+      previousCounters.delete(name);
+    }
   }
 
   return results;
