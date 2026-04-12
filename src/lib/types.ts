@@ -11,6 +11,22 @@ export interface Snapshot {
   ipmi: IpmiInfo;
   os_alerts: OsAlerts;
   security?: SecurityData;
+  zfs?: ZfsData;
+  io_errors?: { count: number; devices: string[] };
+}
+
+export interface ZfsPool {
+  name: string;
+  state: string;
+  errors_text: string;
+  scrub_errors?: number;
+  scrub_repaired?: string;
+  last_scrub_date?: string;
+  scrub_never_run?: boolean;
+}
+
+export interface ZfsData {
+  pools: ZfsPool[];
 }
 
 export interface SecurityData {

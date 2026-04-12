@@ -95,19 +95,25 @@ async function checkSshConfig(): Promise<SshSecurityStatus | null> {
 // === Firewall ===
 
 async function checkFirewall(): Promise<FirewallStatus> {
-  // UFW
+  // UFW: if installed, its status is authoritative (ignores Docker iptables chains)
   const ufw = await run("ufw", ["status"], 5000);
-  if (ufw && ufw.includes("Status: active")) {
-    return { active: true, source: "ufw", details: "UFW is active" };
+  if (ufw && ufw.includes("Status:")) {
+    const active = ufw.includes("Status: active");
+    return { active, source: "ufw", details: active ? "UFW is active" : "UFW is inactive" };
   }
 
-  // firewalld
+  // firewalld: if installed, its status is authoritative
   const fwd = await run("firewall-cmd", ["--state"], 5000);
-  if (fwd && fwd.trim() === "running") {
-    return { active: true, source: "firewalld", details: "firewalld is running" };
+  if (fwd) {
+    if (fwd.trim() === "running") {
+      return { active: true, source: "firewalld", details: "firewalld is running" };
+    }
+    if (fwd.includes("not running") || fwd.includes("dead")) {
+      return { active: false, source: "firewalld", details: "firewalld is not running" };
+    }
   }
 
-  // nftables
+  // nftables (only if no managed firewall found)
   const nft = await run("nft", ["list", "ruleset"], 5000);
   if (nft) {
     const ruleLines = nft.split("\n").filter((l) => l.trim().match(/^\s*(meta|ip |ip6 |tcp |udp |ct |drop|reject|accept)/));
@@ -116,17 +122,25 @@ async function checkFirewall(): Promise<FirewallStatus> {
     }
   }
 
-  // iptables
+  // iptables fallback: filter out Docker/container chains to avoid false positives
   const ipt = await run("iptables", ["-L", "-n"], 5000);
   if (ipt) {
-    const lines = ipt.split("\n").filter((l) => l.trim() && !l.startsWith("Chain ") && !l.startsWith("target "));
-    if (lines.length > 0) return { active: true, source: "iptables", details: `${lines.length} iptables rules` };
+    const lines = ipt.split("\n").filter((l) =>
+      l.trim() &&
+      !l.startsWith("Chain ") &&
+      !l.startsWith("target ") &&
+      !l.includes("DOCKER") &&
+      !l.includes("docker") &&
+      !l.includes("br-") &&
+      !l.includes("f2b-")
+    );
+    if (lines.length > 0) return { active: true, source: "iptables", details: `${lines.length} user iptables rules` };
     if (ipt.includes("policy DROP") || ipt.includes("policy REJECT")) {
       return { active: true, source: "iptables", details: "Default policy is DROP/REJECT" };
     }
   }
 
-  return { active: false, source: "none", details: "No firewall detected" };
+  return { active: false, source: "none", details: "No firewall detected (checked ufw, firewalld, nftables, iptables)" };
 }
 
 // === Pending Security Updates ===
@@ -213,15 +227,28 @@ async function checkAutoUpdates(): Promise<AutoUpdateStatus> {
   // Debian/Ubuntu: unattended-upgrades
   const uuInstalled = await run("bash", ["-c", 'dpkg -l unattended-upgrades 2>/dev/null | grep "^ii"'], 5000);
   if (uuInstalled) {
+    // Check config file
     const autoConf = "/etc/apt/apt.conf.d/20auto-upgrades";
+    let configEnabled = false;
     if (existsSync(autoConf)) {
       const content = readFileSync(autoConf, "utf-8");
-      if (content.includes('Update-Package-Lists "1"') && content.includes('Unattended-Upgrade "1"')) {
-        return { configured: true, mechanism: "unattended-upgrades", details: "Installed and enabled" };
-      }
-      return { configured: false, mechanism: "unattended-upgrades", details: "Installed but not enabled in 20auto-upgrades" };
+      configEnabled = content.includes('Update-Package-Lists "1"') && content.includes('Unattended-Upgrade "1"');
     }
-    return { configured: false, mechanism: "unattended-upgrades", details: "Installed but missing 20auto-upgrades config" };
+
+    // Check systemd service state
+    const serviceEnabled = (await run("bash", ["-c", "systemctl is-enabled unattended-upgrades 2>/dev/null"], 5000))?.trim() === "enabled";
+    const serviceActive = (await run("bash", ["-c", "systemctl is-active unattended-upgrades 2>/dev/null"], 5000))?.trim() === "active";
+
+    if (configEnabled && serviceEnabled) {
+      return { configured: true, mechanism: "unattended-upgrades", details: serviceActive ? "Installed, enabled, and running" : "Installed and enabled (service not active)" };
+    }
+    if (!configEnabled && !serviceEnabled) {
+      return { configured: false, mechanism: "unattended-upgrades", details: "Installed but not configured and service disabled" };
+    }
+    if (!serviceEnabled) {
+      return { configured: false, mechanism: "unattended-upgrades", details: "Installed and configured but service disabled" };
+    }
+    return { configured: false, mechanism: "unattended-upgrades", details: "Installed but not enabled in 20auto-upgrades" };
   }
 
   // RHEL/Rocky/Alma: dnf-automatic
