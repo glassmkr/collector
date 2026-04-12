@@ -32,6 +32,8 @@ import { sendSlack } from "./notify/slack.js";
 import { sendEmail } from "./notify/email.js";
 import { pushToForge, initForgeAgent } from "./push/forge.js";
 import { collectSecurity, type SecurityData } from "./collect/security.js";
+import { collectZfs } from "./collect/zfs.js";
+import { collectIoErrors } from "./collect/io-errors.js";
 import type { Snapshot, IpmiInfo } from "./lib/types.js";
 
 const configPath = process.argv[2] || "/etc/glassmkr/collector.yaml";
@@ -88,6 +90,10 @@ async function collect() {
     system, cpu, memory, disks, smart, network, raid, ipmi, os_alerts: osAlerts,
     security: cachedSecurity,
   };
+
+  // ZFS and I/O errors: collect every cycle (lightweight checks)
+  try { snapshot.zfs = await collectZfs() ?? undefined; } catch { /* skip if ZFS not available */ }
+  try { snapshot.io_errors = await collectIoErrors() ?? undefined; } catch { /* skip on error */ }
 
   // Update Prometheus metrics
   updateMetrics(snapshot);
