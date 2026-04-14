@@ -3,7 +3,7 @@
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![npm version](https://img.shields.io/npm/v/@glassmkr/crucible.svg)](https://www.npmjs.com/package/@glassmkr/crucible)
 
-Lightweight bare metal server monitoring agent. Collects hardware and OS health every 5 minutes and pushes snapshots to a [Forge](https://forge.glassmkr.com) dashboard, which evaluates 36 alert rules and sends notifications.
+Lightweight bare metal server monitoring agent. Collects hardware and OS health every 5 minutes and pushes snapshots to a [Forge](https://forge.glassmkr.com) dashboard, which evaluates 38 alert rules and sends notifications.
 
 Open source. MIT licensed. Built by [Glassmkr](https://glassmkr.com). See also [Bench](https://github.com/glassmkr/bench), the MCP server collection.
 
@@ -104,7 +104,7 @@ sudo systemctl status glassmkr-crucible
 | NTP | Sync state and source |
 | File descriptors | System-wide allocation |
 
-Forge evaluates 36 alert rules server-side across OS, Storage, Network, Hardware, ZFS, Security, and Service Health, with priorities P1 Urgent through P4 Low. Full list: [forge.glassmkr.com/docs/alerts](https://forge.glassmkr.com/docs/alerts).
+Forge evaluates 38 alert rules server-side across OS, Storage, Network, Hardware, ZFS, Security, and Service Health, with priorities P1 Urgent through P4 Low. Full list: [forge.glassmkr.com/docs/alerts](https://forge.glassmkr.com/docs/alerts).
 
 ## Requirements
 
