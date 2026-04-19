@@ -139,12 +139,23 @@ export interface NetworkInfo {
   speed_mbps: number;
   rx_bytes_sec: number;
   tx_bytes_sec: number;
+  /** Delta over the collection interval (rx_errors + any subtype counter). */
   rx_errors: number;
   tx_errors: number;
   rx_drops: number;
   tx_drops: number;
+  /** Delta over the collection interval. Null if counter not available on this NIC. */
+  rx_packets?: number;
+  tx_packets?: number;
+  /** Fine-grained RX hardware-error subtypes (deltas). Null if unavailable. */
+  rx_crc_errors?: number;
+  rx_frame_errors?: number;
+  rx_length_errors?: number;
+  /** TX physical-layer fault counter (delta). Null if unavailable. */
+  tx_carrier_errors?: number;
   operstate?: string; // "up", "down", "unknown", etc. from /sys/class/net/{iface}/operstate
   bond_master?: string; // if this interface is a bond slave, the bond name
+  is_bond_master?: boolean; // true when this entry represents the bond aggregate
 }
 
 export interface RaidInfo {

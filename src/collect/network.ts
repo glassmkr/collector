@@ -13,9 +13,25 @@ interface PreviousCounters {
   tx_errors: number;
   rx_drops: number;
   tx_drops: number;
+  rx_packets: number;
+  tx_packets: number;
+  rx_crc_errors?: number;
+  rx_frame_errors?: number;
+  rx_length_errors?: number;
+  tx_carrier_errors?: number;
 }
 
 const previousCounters = new Map<string, PreviousCounters>();
+
+function readStatCounter(iface: string, name: string): number | undefined {
+  try {
+    const raw = readFileSync(`/sys/class/net/${iface}/statistics/${name}`, "utf-8").trim();
+    const val = parseInt(raw, 10);
+    return Number.isFinite(val) ? val : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function parseNetDev(): Record<string, IfaceStats> {
   const raw = readProcFile("/proc/net/dev") || "";
@@ -66,6 +82,14 @@ function getBondMaster(iface: string): string | undefined {
   return undefined;
 }
 
+function isBondMaster(iface: string): boolean {
+  try {
+    return readdirSync("/proc/net/bonding/").includes(iface);
+  } catch {
+    return false;
+  }
+}
+
 // Compute delta, handling counter wraps (current < previous means reset, use current as delta)
 function delta(current: number, previous: number): number {
   if (current >= previous) return current - previous;
@@ -87,17 +111,37 @@ export async function collectNetwork(): Promise<NetworkInfo[]> {
 
     const prev = previousCounters.get(name);
 
+    // /sys/class/net/*/statistics/ exposes finer-grained RX/TX subtype
+    // counters than /proc/net/dev. Read cumulative values here; delta is
+    // derived below against the previous cycle's snapshot.
+    const rxCrcCum = readStatCounter(name, "rx_crc_errors");
+    const rxFrameCum = readStatCounter(name, "rx_frame_errors");
+    const rxLenCum = readStatCounter(name, "rx_length_errors");
+    const txCarrierCum = readStatCounter(name, "tx_carrier_errors");
+
     // Compute error/drop deltas (0 on first cycle after start or new interface)
     let rxErrorsDelta = 0;
     let txErrorsDelta = 0;
     let rxDropsDelta = 0;
     let txDropsDelta = 0;
+    let rxPacketsDelta = 0;
+    let txPacketsDelta = 0;
+    let rxCrcDelta: number | undefined;
+    let rxFrameDelta: number | undefined;
+    let rxLenDelta: number | undefined;
+    let txCarrierDelta: number | undefined;
 
     if (prev) {
       rxErrorsDelta = delta(s2.rx_errors, prev.rx_errors);
       txErrorsDelta = delta(s2.tx_errors, prev.tx_errors);
       rxDropsDelta = delta(s2.rx_drops, prev.rx_drops);
       txDropsDelta = delta(s2.tx_drops, prev.tx_drops);
+      rxPacketsDelta = delta(s2.rx_packets, prev.rx_packets);
+      txPacketsDelta = delta(s2.tx_packets, prev.tx_packets);
+      if (rxCrcCum != null && prev.rx_crc_errors != null) rxCrcDelta = delta(rxCrcCum, prev.rx_crc_errors);
+      if (rxFrameCum != null && prev.rx_frame_errors != null) rxFrameDelta = delta(rxFrameCum, prev.rx_frame_errors);
+      if (rxLenCum != null && prev.rx_length_errors != null) rxLenDelta = delta(rxLenCum, prev.rx_length_errors);
+      if (txCarrierCum != null && prev.tx_carrier_errors != null) txCarrierDelta = delta(txCarrierCum, prev.tx_carrier_errors);
     }
 
     // Store current cumulative values for next cycle
@@ -106,6 +150,12 @@ export async function collectNetwork(): Promise<NetworkInfo[]> {
       tx_errors: s2.tx_errors,
       rx_drops: s2.rx_drops,
       tx_drops: s2.tx_drops,
+      rx_packets: s2.rx_packets,
+      tx_packets: s2.tx_packets,
+      rx_crc_errors: rxCrcCum,
+      rx_frame_errors: rxFrameCum,
+      rx_length_errors: rxLenCum,
+      tx_carrier_errors: txCarrierCum,
     });
 
     const entry: NetworkInfo = {
@@ -117,10 +167,18 @@ export async function collectNetwork(): Promise<NetworkInfo[]> {
       tx_errors: txErrorsDelta,
       rx_drops: rxDropsDelta,
       tx_drops: txDropsDelta,
+      rx_packets: rxPacketsDelta,
+      tx_packets: txPacketsDelta,
       operstate: getOperstate(name),
     };
+    if (rxCrcDelta !== undefined) entry.rx_crc_errors = rxCrcDelta;
+    if (rxFrameDelta !== undefined) entry.rx_frame_errors = rxFrameDelta;
+    if (rxLenDelta !== undefined) entry.rx_length_errors = rxLenDelta;
+    if (txCarrierDelta !== undefined) entry.tx_carrier_errors = txCarrierDelta;
     const master = getBondMaster(name);
     if (master) entry.bond_master = master;
+    // Identify bond masters (have at least one slave pointing at them).
+    if (isBondMaster(name)) entry.is_bond_master = true;
     results.push(entry);
   }
 
