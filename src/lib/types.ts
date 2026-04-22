@@ -79,6 +79,12 @@ export interface SystemInfo {
   hostname: string;
   ip: string;
   os: string;
+  /** `ID=` from /etc/os-release, lowercased. e.g. "ubuntu", "debian", "rocky", "arch", "alpine". */
+  os_id?: string;
+  /** `ID_LIKE=` from /etc/os-release, lowercased, space-separated. Used by Forge
+   *  to pick distro-family-specific fix command variants. e.g. on Rocky this
+   *  is "rhel centos fedora"; on Ubuntu it is "debian". */
+  os_id_like?: string;
   kernel: string;
   uptime_seconds: number;
 }
