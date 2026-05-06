@@ -173,9 +173,29 @@ export const allRules: AlertRule[] = [
     });
   }},
   // 13. CPU temperature
+  // Primary: /sys/class/hwmon (vendor-agnostic, works on Pi + Dell + everything).
+  // Fallback: IPMI sensors with the historical "cpu" + "temp" substring filter,
+  // used only when hwmon produced no usable CPU reading.
   { type: "cpu_temperature_high", evaluate(snap, t) {
-    if (!snap.ipmi?.available || !snap.ipmi.sensors) return [];
     const warn = t.cpu_temp_warning_c ?? 80;
+    const crit = t.cpu_temp_critical_c ?? 90;
+
+    // Primary path: hwmon
+    if (snap.thermal?.available && snap.thermal.cpu_readings.length > 0 && snap.thermal.max_cpu_celsius != null) {
+      return snap.thermal.cpu_readings
+        .filter(r => r.value_celsius >= warn)
+        .map(r => ({
+          type: "cpu_temperature_high",
+          severity: r.value_celsius >= crit ? "critical" as const : "warning" as const,
+          title: `${r.label}: ${r.value_celsius}°C`,
+          message: `CPU temperature above warning threshold (${r.source} ${r.source_chip}).`,
+          evidence: { sensor: r.label, value: r.value_celsius, source: r.source, chip: r.source_chip },
+          recommendation: "Check cooling, fans, airflow.",
+        }));
+    }
+
+    // Fallback path: IPMI substring filter (Supermicro/ASRock-style names).
+    if (!snap.ipmi?.available || !snap.ipmi.sensors) return [];
     return snap.ipmi.sensors.filter(s => {
       const n = s.name.toLowerCase();
       if (!n.includes("cpu") && !n.includes("temp")) return false;
@@ -183,10 +203,10 @@ export const allRules: AlertRule[] = [
       return !isNaN(v) && v >= warn;
     }).map(s => {
       const v = typeof s.value === "number" ? s.value : parseFloat(String(s.value));
-      const crit = s.upper_critical ?? (t.cpu_temp_critical_c ?? 90);
-      return { type: "cpu_temperature_high", severity: v >= crit ? "critical" as const : "warning" as const,
-        title: `${s.name}: ${v}${s.unit}`, message: `Temperature above warning threshold.`,
-        evidence: { sensor: s.name, value: v },
+      const sensorCrit = s.upper_critical ?? crit;
+      return { type: "cpu_temperature_high", severity: v >= sensorCrit ? "critical" as const : "warning" as const,
+        title: `${s.name}: ${v}${s.unit}`, message: `Temperature above warning threshold (IPMI sensor).`,
+        evidence: { sensor: s.name, value: v, source: "ipmi" },
         recommendation: "Check cooling, fans, airflow." };
     });
   }},

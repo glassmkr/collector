@@ -9,6 +9,7 @@ export interface Snapshot {
   network: NetworkInfo[];
   raid: RaidInfo[];
   ipmi: IpmiInfo;
+  thermal?: ThermalInfo;
   os_alerts: OsAlerts;
   security?: SecurityData;
   zfs?: ZfsData;
@@ -208,6 +209,21 @@ export interface IpmiInfo {
   sel_entries_count: number;
   sel_events_recent: SelEvent[];
   fans: FanStatus[];
+}
+
+export interface ThermalReading {
+  label: string;
+  value_celsius: number;
+  source_chip: string;
+  source: "hwmon" | "thermal_zone";
+}
+
+export interface ThermalInfo {
+  available: boolean;
+  source: "hwmon" | "thermal_zone" | "none";
+  cpu_readings: ThermalReading[];
+  other_readings: ThermalReading[];
+  max_cpu_celsius: number | null;
 }
 
 export interface OsAlerts {

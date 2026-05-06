@@ -32,6 +32,70 @@ function emptySnap(): Snapshot {
 }
 
 const diskLatencyRule = allRules.find(r => r.type === "disk_latency_high")!;
+const cpuTempRule = allRules.find(r => r.type === "cpu_temperature_high")!;
+
+describe("cpu_temperature_high (hwmon path)", () => {
+  it("fires from hwmon when no IPMI is available (Pi)", () => {
+    const snap = emptySnap();
+    snap.thermal = {
+      available: true, source: "hwmon",
+      cpu_readings: [{ label: "cpu_thermal temp1", value_celsius: 85, source_chip: "cpu_thermal", source: "hwmon" }],
+      other_readings: [], max_cpu_celsius: 85,
+    };
+    const out = cpuTempRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].severity).toBe("warning");
+    expect(out[0].evidence.source).toBe("hwmon");
+    expect(out[0].evidence.chip).toBe("cpu_thermal");
+  });
+
+  it("fires critical when value_celsius >= cpu_temp_critical_c", () => {
+    const snap = emptySnap();
+    snap.thermal = {
+      available: true, source: "hwmon",
+      cpu_readings: [{ label: "coretemp Package id 0", value_celsius: 95, source_chip: "coretemp", source: "hwmon" }],
+      other_readings: [], max_cpu_celsius: 95,
+    };
+    const out = cpuTempRule.evaluate(snap, baseThresholds);
+    expect(out[0].severity).toBe("critical");
+  });
+
+  it("does not fire when max_cpu_celsius is null (VM)", () => {
+    const snap = emptySnap();
+    snap.thermal = { available: true, source: "none", cpu_readings: [], other_readings: [], max_cpu_celsius: null };
+    expect(cpuTempRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+
+  it("falls back to IPMI substring filter when hwmon is unavailable", () => {
+    const snap = emptySnap();
+    snap.ipmi = {
+      available: true, ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+      sensors: [{ name: "CPU1 Temp", value: 85, unit: "degrees C", status: "ok" }],
+    };
+    const out = cpuTempRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].evidence.source).toBe("ipmi");
+  });
+
+  it("hwmon takes priority over IPMI when both are present", () => {
+    const snap = emptySnap();
+    snap.thermal = {
+      available: true, source: "hwmon",
+      cpu_readings: [{ label: "coretemp Package id 0", value_celsius: 88, source_chip: "coretemp", source: "hwmon" }],
+      other_readings: [], max_cpu_celsius: 88,
+    };
+    snap.ipmi = {
+      available: true, ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+      sensors: [{ name: "CPU1 Temp", value: 99, unit: "degrees C", status: "ok" }],
+    };
+    const out = cpuTempRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].evidence.source).toBe("hwmon");
+    expect(out[0].evidence.value).toBe(88);
+  });
+});
 
 describe("disk_latency_high", () => {
   it("does not fire when io_latency is missing", () => {

@@ -89,10 +89,9 @@ visibility, not as bugs.
 - **Status**: OK
 
 ### 13. `cpu_temperature_high` (`rules.ts:169`)
-- **Reads from**: `snap.ipmi.{available, sensors[].name, value, unit, upper_critical}`
-- **Populated by**: `collectIpmi` (`src/collect/ipmi.ts`)
-- **Status**: DEPENDS_ON_HARDWARE(`BMC`)
-- **Known issue**: substring filter `n.includes("cpu") && n.includes("temp")` requires both tokens in the same sensor name. Fails on Dell iDRAC (uses bare `Temp`) and HPE iLO (uses `02-CPU 1` style). To be fixed by `CC_CRUCIBLE_HWMON_THERMAL.md`.
+- **Reads from**: `snap.thermal.{available, cpu_readings, max_cpu_celsius}`; falls back to `snap.ipmi.sensors`
+- **Populated by**: `collectThermal` (`src/collect/thermal.ts`, primary), `collectIpmi` (fallback)
+- **Status**: OK (primary path works on any Linux host with hwmon: Pi, Dell, HPE, Supermicro). IPMI fallback retained for hosts where hwmon yields no CPU readings but IPMI does.
 
 ### 14. `ecc_errors` (`rules.ts:187`)
 - **Reads from**: `snap.ipmi.ecc_errors.{correctable, uncorrectable}`

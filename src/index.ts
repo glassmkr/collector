@@ -68,6 +68,7 @@ import { collectConntrack } from "./collect/conntrack.js";
 import { collectSystemd } from "./collect/systemd.js";
 import { collectNtp } from "./collect/ntp.js";
 import { collectFileDescriptors } from "./collect/fd.js";
+import { collectThermal } from "./collect/thermal.js";
 import type { Snapshot, IpmiInfo } from "./lib/types.js";
 import { consumeRebootMarker, type PlannedReboot } from "./lib/reboot-marker.js";
 
@@ -144,6 +145,9 @@ async function collect() {
   }
 
   // ZFS and I/O errors: collect every cycle (lightweight checks)
+  if (config.collection.thermal) {
+    try { snapshot.thermal = await collectThermal(); } catch { /* skip on error */ }
+  }
   try { snapshot.zfs = await collectZfs() ?? undefined; } catch { /* skip if ZFS not available */ }
   try { snapshot.io_errors = await collectIoErrors() ?? undefined; } catch { /* skip on error */ }
   try { snapshot.io_latency = collectIoLatency(); } catch { /* skip on error */ }
@@ -196,6 +200,11 @@ async function collect() {
     console.log(`SMART:  ${smart.length > 0 ? `${smart.length} drive(s) checked` : "not available"}`);
     console.log(`Network: ${network.map((n) => n.interface).join(", ") || "none detected"}`);
     console.log(`IPMI:   ${ipmi.available ? "available" : "not available"}`);
+    if (snapshot.thermal) {
+      const t = snapshot.thermal;
+      const max = t.max_cpu_celsius != null ? `, hottest CPU ${t.max_cpu_celsius}°C` : "";
+      console.log(`Thermal: ${t.source === "none" ? "no CPU sensors" : `${t.source} (${t.cpu_readings.length} CPU reading(s)${max})`}`);
+    }
     console.log(`Active alerts: ${alertResults.length}`);
     console.log(`Forge: ${config.forge.enabled ? "enabled" : "disabled"}`);
     console.log("");

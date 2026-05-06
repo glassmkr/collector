@@ -8,6 +8,7 @@ const ConfigSchema = z.object({
     interval_seconds: z.number().min(60).max(3600).default(300),
     ipmi: z.boolean().default(true),
     smart: z.boolean().default(true),
+    thermal: z.boolean().default(true),
   }).default({}),
   forge: z.object({
     enabled: z.boolean().default(false),
