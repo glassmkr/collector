@@ -221,8 +221,16 @@ export interface DmiInfo {
 
 export type PsuRedundancyState = "fully_redundant" | "redundancy_lost" | "redundancy_degraded" | "unknown";
 
+export type IpmiCapability =
+  | { available: true; method: "ipmitool_in_band"; ipmitool_version: string | null }
+  | { available: false; reason: "no_ipmitool_binary" | "no_bmc_device" | "execution_failed" | "permission_denied"; detail?: string };
+
 export interface IpmiInfo {
   available: boolean;
+  /** One-shot startup detection result; helps Forge surface "IPMI not
+   *  available on this host" with a precise reason. Not present on
+   *  pre-detection snapshots (older agent versions). */
+  detection?: IpmiCapability;
   sensors: Array<{
     name: string;
     value: number | string;

@@ -1,11 +1,38 @@
 import { run } from "../lib/exec.js";
-import type { IpmiInfo, SelEvent, FanStatus, Vendor, PsuRedundancyState } from "../lib/types.js";
+import type { IpmiInfo, SelEvent, FanStatus, Vendor, PsuRedundancyState, IpmiCapability } from "../lib/types.js";
 import { isPsuRedundancySensor, classifyPsuRedundancyState } from "../lib/vendor-sensors.js";
 
-export async function collectIpmi(vendor: Vendor = "generic"): Promise<IpmiInfo> {
+/**
+ * Collect IPMI snapshot.
+ *
+ * @param vendor      Vendor from DMI; controls vendor-aware sensor classification.
+ * @param capability  Optional cached startup-time IPMI capability. When passed
+ *                    and `available: false`, returns emptyIpmi without spawning
+ *                    any ipmitool processes. When omitted, behaves as before
+ *                    (per-cycle ENOENT on no-BMC hosts; supported for tests
+ *                    and back-compat).
+ */
+export async function collectIpmi(vendor: Vendor = "generic", capability?: IpmiCapability): Promise<IpmiInfo> {
+  if (capability && !capability.available) {
+    return {
+      available: false,
+      sensors: [],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0,
+      sel_events_recent: [],
+      fans: [],
+      detection: capability,
+    };
+  }
+
   const sensorRaw = await run("ipmitool", ["sensor"]);
   if (!sensorRaw) {
-    return { available: false, sensors: [], ecc_errors: { correctable: 0, uncorrectable: 0 }, sel_entries_count: 0, sel_events_recent: [], fans: [] };
+    return {
+      available: false, sensors: [],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+      detection: capability,
+    };
   }
 
   // Parse sensor readings
@@ -83,6 +110,7 @@ export async function collectIpmi(vendor: Vendor = "generic"): Promise<IpmiInfo>
     sel_entries_count: selCount,
     sel_events_recent: selEvents,
     fans,
+    detection: capability,
   };
 }
 

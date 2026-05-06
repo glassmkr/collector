@@ -70,7 +70,8 @@ import { collectNtp } from "./collect/ntp.js";
 import { collectFileDescriptors } from "./collect/fd.js";
 import { collectThermal } from "./collect/thermal.js";
 import { collectDmi, formatVendorLine } from "./collect/dmi.js";
-import type { Snapshot, IpmiInfo, DmiInfo } from "./lib/types.js";
+import { detectIpmiCapability, formatCapabilityLine } from "./lib/capability.js";
+import type { Snapshot, IpmiInfo, DmiInfo, IpmiCapability } from "./lib/types.js";
 import { consumeRebootMarker, type PlannedReboot } from "./lib/reboot-marker.js";
 
 // Consume the planned-reboot marker once at startup. If the operator ran
@@ -115,6 +116,28 @@ if (config.collection.dmi) {
   }
 }
 
+// IPMI capability detection is also a one-shot at startup. When unavailable,
+// collectIpmi short-circuits without spawning ipmitool, saving four ENOENT
+// execs per cycle on no-BMC hosts (Pi, laptops, VMs without IPMI).
+//
+// User override: if config.collection.ipmi is true and detection says
+// unavailable, we still log the warning, but pass the negative capability
+// through. collectIpmi's short-circuit will skip exec attempts. Operators
+// who hit a false-negative detection can flip collection.ipmi to false to
+// silence the snapshot field, or unset capability passing entirely (not
+// exposed via config — would need a code change).
+let ipmiCapability: IpmiCapability | undefined;
+if (config.collection.ipmi) {
+  try {
+    ipmiCapability = await detectIpmiCapability();
+    console.log(`[collector] ${formatCapabilityLine(ipmiCapability)}`);
+  } catch (err) {
+    console.error("[ipmi] Capability detection error:", err);
+  }
+} else {
+  console.log("[collector] IPMI: disabled by config");
+}
+
 // Security checks run once per hour (every 12th cycle at 5-min intervals)
 let securityCycleCount = 0;
 let cachedSecurity: SecurityData | undefined;
@@ -131,7 +154,7 @@ async function collect() {
     config.collection.smart ? collectSmart() : Promise.resolve([]),
     collectNetwork(),
     collectRaid(),
-    config.collection.ipmi ? collectIpmi(cachedDmi?.vendor ?? "generic") : Promise.resolve(emptyIpmi),
+    config.collection.ipmi ? collectIpmi(cachedDmi?.vendor ?? "generic", ipmiCapability) : Promise.resolve(emptyIpmi),
     collectOsAlerts(),
   ]);
 

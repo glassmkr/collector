@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifySensor, deriveSelSeverity, parseSelTimestamp, parseFanStatus, parseSelEccCounts } from "../ipmi.js";
+import { classifySensor, deriveSelSeverity, parseSelTimestamp, parseFanStatus, parseSelEccCounts, collectIpmi } from "../ipmi.js";
 
 describe("classifySensor", () => {
   it("recognizes memory sensors", () => {
@@ -126,5 +126,23 @@ describe("parseSelEccCounts (Dell-style SEL output)", () => {
 
   it("handles empty input", () => {
     expect(parseSelEccCounts("")).toEqual({ correctable: 0, uncorrectable: 0, newest_event_timestamp: null });
+  });
+});
+
+describe("collectIpmi: capability short-circuit", () => {
+  it("returns emptyIpmi without spawning anything when capability is unavailable", async () => {
+    const out = await collectIpmi("generic", { available: false, reason: "no_ipmitool_binary" });
+    expect(out.available).toBe(false);
+    expect(out.sensors).toEqual([]);
+    expect(out.detection).toEqual({ available: false, reason: "no_ipmitool_binary" });
+  });
+
+  it("attaches detection field even when sensorRaw fallback path triggers", async () => {
+    // Pass capability=undefined and let it fall through to actual ipmitool exec
+    // (which will ENOENT on the test runner). The result should still have
+    // available:false and no detection field.
+    const out = await collectIpmi("generic");
+    expect(out.available).toBe(false);
+    expect(out.detection).toBeUndefined();
   });
 });
