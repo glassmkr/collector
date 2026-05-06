@@ -354,3 +354,123 @@ describe("ALL_RULE_IDS export sync", () => {
     expect(json.rule_ids).toEqual([...ALL_RULE_IDS]);
   });
 });
+
+describe("cpu_temperature_high IPMI fallback unit gate (regression for 0.8.0 P1)", () => {
+  it("does NOT fire on CPU_FAN at 2000 RPM (would have alerted as 2000°C critical)", () => {
+    const snap = emptySnap();
+    // hwmon empty => fallback path runs
+    snap.thermal = { available: true, source: "none", cpu_readings: [], other_readings: [], max_cpu_celsius: null };
+    snap.ipmi = {
+      available: true,
+      sensors: [{ name: "CPU_FAN1", value: 2000, unit: "RPM", status: "ok" }],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(cpuTempRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+
+  it("does NOT fire on CPU Vcore at 1.2 V", () => {
+    const snap = emptySnap();
+    snap.ipmi = {
+      available: true,
+      sensors: [{ name: "CPU Vcore", value: 1.2, unit: "Volts", status: "ok" }],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(cpuTempRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+
+  it("excludes ambient/inlet/PCH/DIMM sensors that read in degrees C", () => {
+    const snap = emptySnap();
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "Inlet Temp", value: 88, unit: "degrees C", status: "ok" }, // not CPU
+        { name: "PCH Temp", value: 92, unit: "degrees C", status: "ok" },
+        { name: "DIMM A1 Temp", value: 90, unit: "degrees C", status: "ok" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(cpuTempRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+
+  it("still fires on legitimate CPU temperature sensor with degrees C unit", () => {
+    const snap = emptySnap();
+    snap.ipmi = {
+      available: true,
+      sensors: [{ name: "CPU1 Temp", value: 88, unit: "degrees C", status: "ok" }],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = cpuTempRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].evidence.source).toBe("ipmi");
+    expect(out[0].evidence.unit).toBe("degrees C");
+  });
+
+  it("accepts the SI 'C' / '°C' unit spellings", () => {
+    const snap = emptySnap();
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "Processor 1 Temp", value: 85, unit: "C", status: "ok" },
+        { name: "CPU2 Temp", value: 87, unit: "°C", status: "ok" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = cpuTempRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(2);
+  });
+});
+
+describe("psu_redundancy_loss cr/nr discrete codes (regression for 0.8.0 P1)", () => {
+  it("fires on Supermicro PSU1 with status='cr'", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "supermicro", raw_vendor: "Supermicro", product_name: "X11", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PSU1 Status", value: "0x02", unit: "discrete", status: "cr" },
+        { name: "PSU2 Status", value: "0x01", unit: "discrete", status: "ok" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = psuRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].evidence.vendor).toBe("supermicro");
+  });
+
+  it("fires on Dell PS<N> with status='nr'", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "dell", raw_vendor: "Dell Inc.", product_name: "PowerEdge R740", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PS1 Status", value: "0x01", unit: "discrete", status: "ok" },
+        { name: "PS2 Status", value: "0x02", unit: "discrete", status: "nr" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = psuRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+  });
+
+  it("does NOT fire on status='nc' (non-critical, e.g. derating)", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "supermicro", raw_vendor: "Supermicro", product_name: "X11", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PSU1 Status", value: "0x01", unit: "discrete", status: "nc" },
+        { name: "PSU2 Status", value: "0x01", unit: "discrete", status: "ok" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(psuRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+});

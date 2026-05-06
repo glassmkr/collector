@@ -26,9 +26,17 @@ export function classifyVendor(rawVendor: string | null, productName: string | n
 
   if (v.includes("dell")) return { vendor: "dell", is_virtual: false };
   if (v.includes("hpe") || v.includes("hewlett packard enterprise")) return { vendor: "hpe", is_virtual: false };
-  // Plain "HP" matches legacy ProLiant. Be careful not to match "HPE" twice;
-  // the order above handles that. "HP" must be a whole word or vendor prefix.
-  if (/(^|\W)hp(\W|$)/i.test(rawVendor)) return { vendor: "hpe", is_virtual: false };
+  // Hewlett-Packard Company / Hewlett-Packard / Hewlett Packard (legacy
+  // ProLiant DL3xx Gen8 era and earlier). Match before the standalone
+  // "HP" rule so the rule below doesn't ambiguously catch HP-UX style
+  // strings.
+  if (/hewlett[\s-]?packard/i.test(rawVendor)) return { vendor: "hpe", is_virtual: false };
+  // Standalone "HP" as a whole token. Tightened so non-vendor strings
+  // like "HP-UX" (an OS name occasionally seen in product_name in
+  // misconfigured firmwares) don't match. The character after "HP"
+  // must be whitespace or end-of-string; product names start with a
+  // space (e.g. "HP ProLiant ...").
+  if (/(^|\s)hp(\s|$)/i.test(rawVendor)) return { vendor: "hpe", is_virtual: false };
   if (v.includes("supermicro")) return { vendor: "supermicro", is_virtual: false };
   if (v.includes("asrockrack") || v.includes("asrock rack")) return { vendor: "asrockrack", is_virtual: false };
   if (v.includes("lenovo")) return { vendor: "lenovo", is_virtual: false };

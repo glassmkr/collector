@@ -12,6 +12,24 @@ import type { Snapshot, AlertResult } from "../lib/types.js";
 import type { Config } from "../config.js";
 import { isPsuSensor } from "../lib/vendor-sensors.js";
 
+/**
+ * True iff a sensor reading is a temperature reading. Mirrors the
+ * helper in Forge's evaluator so both sides agree. Defensive against
+ * case differences and the SI "degrees C" spelling. Without this
+ * gate, the cpu_temperature_high IPMI fallback would false-fire on
+ * any sensor whose name contained "cpu" or "temp" (e.g. CPU_FAN at
+ * 2000 RPM would alert as 2000°C critical).
+ */
+function isTemperatureSensor(s: { unit?: string }): boolean {
+  const u = (s.unit ?? "").trim();
+  return (
+    u === "C" ||
+    u === "°C" ||
+    /^degrees?\s*c$/i.test(u) ||
+    /^deg(\s|ree)?\s*c$/i.test(u)
+  );
+}
+
 export interface AlertRule {
   type: string;
   evaluate(snap: Snapshot, thresholds: Config["thresholds"]): AlertResult[];
@@ -212,11 +230,19 @@ export const allRules: AlertRule[] = [
         }));
     }
 
-    // Fallback path: IPMI substring filter (Supermicro/ASRock-style names).
+    // Fallback path: IPMI sensors. Two gates required to fire:
+    //   1. unit indicates temperature (degrees C). Without this a
+    //      CPU_FAN sensor reading 2000 RPM would alert as critical.
+    //   2. name contains "cpu" or "processor". Excludes ambient,
+    //      inlet, PCH, DIMM, PSU sensors that happen to read in °C.
     if (!snap.ipmi?.available || !snap.ipmi.sensors) return [];
+    const exclusions = ["ambient", "system", "pch", "inlet", "outlet", "exhaust", "psu", "dimm", "memory"];
     return snap.ipmi.sensors.filter(s => {
+      if (!isTemperatureSensor(s)) return false;
       const n = s.name.toLowerCase();
-      if (!n.includes("cpu") && !n.includes("temp")) return false;
+      const isCpu = n.includes("cpu") || n.includes("processor");
+      if (!isCpu) return false;
+      if (exclusions.some(w => n.includes(w))) return false;
       const v = typeof s.value === "number" ? s.value : parseFloat(String(s.value));
       return !isNaN(v) && v >= warn;
     }).map(s => {
@@ -224,7 +250,7 @@ export const allRules: AlertRule[] = [
       const sensorCrit = s.upper_critical ?? crit;
       return { type: "cpu_temperature_high", severity: v >= sensorCrit ? "critical" as const : "warning" as const,
         title: `${s.name}: ${v}${s.unit}`, message: `Temperature above warning threshold (IPMI sensor).`,
-        evidence: { sensor: s.name, value: v, source: "ipmi" },
+        evidence: { sensor: s.name, value: v, unit: s.unit, source: "ipmi" },
         recommendation: "Check cooling, fans, airflow." };
     });
   }},
@@ -280,9 +306,17 @@ export const allRules: AlertRule[] = [
     if (!snap.ipmi.sensors) return [];
     const psus = snap.ipmi.sensors.filter(s => isPsuSensor(s.name, vendor));
     if (psus.length < 2) return [];
+    // ipmitool reports discrete states two ways:
+    //   - text values like "Failure detected", "Absent", "OK"
+    //   - short codes in the status column: "ok", "ns" (not specified /
+    //     no reading), "nc" (non-critical), "cr" (critical), "nr"
+    //     (non-recoverable). cr and nr indicate the PSU is in a fault
+    //     state; the 0.8.0 implementation only matched "fail"/"absent"
+    //     text and missed every BMC that uses the short codes.
     const failed = psus.filter(s => {
-      const st = String(s.status).toLowerCase();
+      const st = String(s.status).toLowerCase().trim();
       const v = String(s.value).toLowerCase();
+      if (st === "cr" || st === "nr") return true;
       return st.includes("fail") || st.includes("absent") || v.includes("fail") || v.includes("absent");
     });
     if (failed.length === 0) return [];

@@ -120,3 +120,23 @@ describe("formatVendorLine", () => {
     expect(line).toBe("Vendor: unknown (DMI not available)");
   });
 });
+
+describe("classifyVendor: HP edge cases (regression for 0.8.0 medium)", () => {
+  it("identifies 'Hewlett-Packard Company' (legacy ProLiant DL3xx Gen8 era)", () => {
+    expect(classifyVendor("Hewlett-Packard Company", "ProLiant DL380 G7")).toEqual({ vendor: "hpe", is_virtual: false });
+  });
+  it("identifies 'Hewlett-Packard' without 'Company' suffix", () => {
+    expect(classifyVendor("Hewlett-Packard", "ProLiant")).toEqual({ vendor: "hpe", is_virtual: false });
+  });
+  it("identifies 'Hewlett Packard' with space (no hyphen)", () => {
+    expect(classifyVendor("Hewlett Packard", "ProLiant")).toEqual({ vendor: "hpe", is_virtual: false });
+  });
+  it("does NOT classify 'HP-UX' as HP (it's an OS, hyphen is non-whitespace)", () => {
+    expect(classifyVendor("HP-UX", "Some Product")).toEqual({ vendor: "generic", is_virtual: false });
+  });
+  it("still identifies 'HP ProLiant DL360' as HP", () => {
+    // sys_vendor is rarely this, but the rule should handle the common
+    // 'HP <space> something' shape from older firmwares.
+    expect(classifyVendor("HP ProLiant DL360", "DL360 G7")).toEqual({ vendor: "hpe", is_virtual: false });
+  });
+});

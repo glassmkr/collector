@@ -31,15 +31,16 @@ async function listDir(path: string): Promise<string[] | null> {
 }
 
 /**
- * Decide whether a particular hwmon entry within a CPU chip is the right one
- * to use for max_cpu_celsius vs. what should go to other_readings.
+ * Per-reading classification for CPU chips that don't need cross-reading
+ * fallback logic.
  *
  * Intel coretemp:  prefer "Package id N", per-core to other_readings.
- * AMD k10temp:     prefer "Tdie", "Tctl" skipped (vendor offset), Tccd to other.
- * AMD zenpower:    prefer "Tdie".
  * Pi cpu_thermal:  single anonymous reading, take it.
  *
- * Returns "cpu" | "other" | "skip".
+ * AMD k10temp / zenpower handled separately in `pickAmdCpuReading` because
+ * Tdie isn't always exposed; the kernel may show only Tctl, only Tccd*,
+ * or any subset. We need to look at all readings on the chip together to
+ * pick the best CPU candidate.
  */
 function classifyCpuReading(chip: string, label: string): "cpu" | "other" | "skip" {
   const lower = label.toLowerCase();
@@ -48,15 +49,46 @@ function classifyCpuReading(chip: string, label: string): "cpu" | "other" | "ski
     if (lower.startsWith("core ")) return "other";
     return "other";
   }
-  if (chip === "k10temp" || chip === "zenpower") {
-    if (lower === "tdie") return "cpu";
-    if (lower === "tctl") return "skip"; // offset version of Tdie, redundant
-    if (lower.startsWith("tccd")) return "other";
-    // If the driver only exposes one anonymous reading (some kernels), accept it.
-    return "cpu";
-  }
+  // k10temp / zenpower handled by pickAmdCpuReading.
+  if (chip === "k10temp" || chip === "zenpower") return "skip";
   // Pi cpu_thermal and other ARM SoCs: usually one reading per chip, take it.
   return "cpu";
+}
+
+/**
+ * Pick the best CPU reading from a set of AMD k10temp / zenpower readings
+ * on a single chip. Preference order:
+ *   1. Tdie    -- die temperature, no offset, ideal
+ *   2. First Tccd* (lowest index) -- per-CCD die temp, decent proxy
+ *   3. Tctl   -- offset on Zen 1/2 (+20°C) but accurate on later parts;
+ *                last resort because it can be misleading on older CPUs
+ *
+ * Other readings (e.g. additional Tccd siblings) become other_readings.
+ * This matches what `sensors`(1) does in user-facing output and avoids
+ * the 0.8.0 bug where "only-Tctl" or "only-Tccd" hosts produced no CPU
+ * reading at all.
+ */
+function pickAmdCpuReading(readings: ThermalReading[]): { cpu: ThermalReading | null; other: ThermalReading[] } {
+  if (readings.length === 0) return { cpu: null, other: [] };
+  // Find by label (case-insensitive). Labels were already prefixed with
+  // chip name in the caller; strip that prefix for matching.
+  const labelOf = (r: ThermalReading) => r.label.replace(new RegExp(`^${r.source_chip}\\s+`, "i"), "").toLowerCase();
+  const tdie = readings.find(r => labelOf(r) === "tdie");
+  if (tdie) {
+    return { cpu: tdie, other: readings.filter(r => r !== tdie) };
+  }
+  const tccds = readings
+    .filter(r => labelOf(r).startsWith("tccd"))
+    .sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
+  if (tccds.length > 0) {
+    return { cpu: tccds[0], other: readings.filter(r => r !== tccds[0]) };
+  }
+  const tctl = readings.find(r => labelOf(r) === "tctl");
+  if (tctl) {
+    return { cpu: tctl, other: readings.filter(r => r !== tctl) };
+  }
+  // Fallback: anonymous reading on a chip the driver didn't label.
+  return { cpu: readings[0], other: readings.slice(1) };
 }
 
 interface RawHwmonReading {
@@ -84,6 +116,12 @@ export async function collectFromHwmon(root: string = HWMON_ROOT): Promise<{ cpu
     // Find tempN_input files. Skip threshold files (max, crit, max_hyst, min, etc.)
     const tempInputs = files.filter(f => /^temp\d+_input$/.test(f));
     const isCpu = isCpuChip(chipName);
+    const isAmd = chipName === "k10temp" || chipName === "zenpower";
+
+    // Buffer all readings on this chip first so AMD chips can do
+    // cross-reading Tdie/Tccd/Tctl fallback without needing two passes
+    // through the filesystem.
+    const chipReadings: ThermalReading[] = [];
 
     for (const inputFile of tempInputs) {
       const idx = inputFile.match(/^temp(\d+)_input$/)![1];
@@ -109,10 +147,21 @@ export async function collectFromHwmon(root: string = HWMON_ROOT): Promise<{ cpu
         continue;
       }
 
+      if (isAmd) {
+        chipReadings.push(reading);
+        continue;
+      }
+
       const cls = classifyCpuReading(chipName, labelFile ?? "");
       if (cls === "cpu") cpu.push(reading);
       else if (cls === "other") other.push(reading);
       // "skip" → drop
+    }
+
+    if (isAmd && chipReadings.length > 0) {
+      const { cpu: amdCpu, other: amdOther } = pickAmdCpuReading(chipReadings);
+      if (amdCpu) cpu.push(amdCpu);
+      other.push(...amdOther);
     }
   }
 

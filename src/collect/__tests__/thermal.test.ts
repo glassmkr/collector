@@ -49,7 +49,7 @@ describe("collectFromHwmon: Intel coretemp", () => {
 });
 
 describe("collectFromHwmon: AMD k10temp", () => {
-  it("prefers Tdie over Tctl, Tccd to other_readings", async () => {
+  it("prefers Tdie; Tctl + remaining Tccd go to other_readings", async () => {
     await writeChip("hwmon0", {
       name: "k10temp",
       temp1_input: "65000", temp1_label: "Tctl",
@@ -61,8 +61,11 @@ describe("collectFromHwmon: AMD k10temp", () => {
     expect(result!.cpu).toHaveLength(1);
     expect(result!.cpu[0].label).toBe("k10temp Tdie");
     expect(result!.cpu[0].value_celsius).toBe(62);
-    // Tctl is skipped, Tccd1/Tccd2 go to other.
-    expect(result!.other.map(r => r.label).sort()).toEqual(["k10temp Tccd1", "k10temp Tccd2"]);
+    // Tctl now goes to other_readings (visible to operators) rather than
+    // being silently dropped. Tccd1/Tccd2 also other.
+    expect(result!.other.map(r => r.label).sort()).toEqual([
+      "k10temp Tccd1", "k10temp Tccd2", "k10temp Tctl",
+    ]);
   });
 });
 
@@ -174,5 +177,67 @@ describe("collectFromHwmon: rejects bogus values", () => {
     const result = await collectFromHwmon(root);
     expect(result!.cpu).toHaveLength(1);
     expect(result!.cpu[0].value_celsius).toBe(50);
+  });
+});
+
+describe("collectFromHwmon: AMD k10temp Tdie fallback (regression for 0.8.0 P1)", () => {
+  it("uses Tccd1 when Tdie is missing", async () => {
+    await writeChip("hwmon0", {
+      name: "k10temp",
+      temp1_input: "65000", temp1_label: "Tctl",
+      temp2_input: "60000", temp2_label: "Tccd1",
+      temp3_input: "62000", temp3_label: "Tccd2",
+    });
+    const result = await collectFromHwmon(root);
+    expect(result!.cpu).toHaveLength(1);
+    expect(result!.cpu[0].label).toBe("k10temp Tccd1");
+    expect(result!.cpu[0].value_celsius).toBe(60);
+    // Remaining Tccd2 + Tctl in other.
+    const otherLabels = result!.other.map(r => r.label).sort();
+    expect(otherLabels).toEqual(["k10temp Tccd2", "k10temp Tctl"]);
+  });
+
+  it("uses Tctl as last resort when only Tctl is exposed", async () => {
+    await writeChip("hwmon0", {
+      name: "k10temp",
+      temp1_input: "70000", temp1_label: "Tctl",
+    });
+    const result = await collectFromHwmon(root);
+    expect(result!.cpu).toHaveLength(1);
+    expect(result!.cpu[0].label).toBe("k10temp Tctl");
+    expect(result!.cpu[0].value_celsius).toBe(70);
+    expect(result!.other).toHaveLength(0);
+  });
+
+  it("picks Tccd1 over Tccd2/Tccd3 by sort order", async () => {
+    await writeChip("hwmon0", {
+      name: "k10temp",
+      temp1_input: "61000", temp1_label: "Tccd2",
+      temp2_input: "60000", temp2_label: "Tccd1",
+      temp3_input: "62000", temp3_label: "Tccd3",
+    });
+    const result = await collectFromHwmon(root);
+    expect(result!.cpu).toHaveLength(1);
+    expect(result!.cpu[0].label).toBe("k10temp Tccd1");
+  });
+
+  it("zenpower with only Tccd: still produces a CPU reading", async () => {
+    await writeChip("hwmon0", {
+      name: "zenpower",
+      temp1_input: "55000", temp1_label: "Tccd1",
+    });
+    const result = await collectFromHwmon(root);
+    expect(result!.cpu).toHaveLength(1);
+    expect(result!.cpu[0].source_chip).toBe("zenpower");
+  });
+
+  it("anonymous AMD reading (no label files) is taken", async () => {
+    await writeChip("hwmon0", {
+      name: "k10temp",
+      temp1_input: "55000",
+    });
+    const result = await collectFromHwmon(root);
+    expect(result!.cpu).toHaveLength(1);
+    expect(result!.cpu[0].label).toBe("k10temp temp1");
   });
 });
