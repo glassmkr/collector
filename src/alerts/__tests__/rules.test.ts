@@ -32,6 +32,30 @@ function emptySnap(): Snapshot {
 }
 
 const diskLatencyRule = allRules.find(r => r.type === "disk_latency_high")!;
+const swapHighRule = allRules.find(r => r.type === "swap_high")!;
+
+describe("swap_high (formerly swap_active)", () => {
+  it("does not fire when no swap is in use", () => {
+    const snap = emptySnap();
+    expect(swapHighRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+
+  it("fires warning when swap is in use", () => {
+    const snap = emptySnap();
+    snap.memory.swap_used_mb = 128;
+    const out = swapHighRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].severity).toBe("warning");
+    expect(out[0].type).toBe("swap_high");
+    expect(out[0].evidence.swap_used_mb).toBe(128);
+  });
+
+  it("respects t.swap_alert=false", () => {
+    const snap = emptySnap();
+    snap.memory.swap_used_mb = 128;
+    expect(swapHighRule.evaluate(snap, { ...baseThresholds, swap_alert: false })).toEqual([]);
+  });
+});
 const cpuTempRule = allRules.find(r => r.type === "cpu_temperature_high")!;
 const eccRule = allRules.find(r => r.type === "ecc_errors")!;
 const psuRule = allRules.find(r => r.type === "psu_redundancy_loss")!;
@@ -310,5 +334,23 @@ describe("disk_latency_high", () => {
       { device: "sda", avg_read_latency_ms: null, avg_write_latency_ms: null, read_iops: 0, write_iops: 0 },
     ];
     expect(diskLatencyRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+});
+
+describe("ALL_RULE_IDS export sync", () => {
+  it("matches the actual rule definitions in allRules", async () => {
+    const { ALL_RULE_IDS } = await import("../rules.js");
+    const idsFromArray = allRules.map(r => r.type);
+    expect([...ALL_RULE_IDS]).toEqual(idsFromArray);
+  });
+
+  it("matches the static rule-ids.json file (npm-published metadata)", async () => {
+    const { ALL_RULE_IDS } = await import("../rules.js");
+    const fs = await import("node:fs/promises");
+    const url = await import("node:url");
+    const path = await import("node:path");
+    const here = path.dirname(url.fileURLToPath(import.meta.url));
+    const json = JSON.parse(await fs.readFile(path.resolve(here, "../../../rule-ids.json"), "utf-8"));
+    expect(json.rule_ids).toEqual([...ALL_RULE_IDS]);
   });
 });

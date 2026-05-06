@@ -17,6 +17,23 @@ export interface AlertRule {
   evaluate(snap: Snapshot, thresholds: Config["thresholds"]): AlertResult[];
 }
 
+/**
+ * Stable, ordered list of every rule ID this collector ships. Exported as
+ * a public API so downstream tooling (Glassmkr's drift validator, Forge's
+ * UI registry) can verify both sides agree on what exists. When you add
+ * or remove a rule, this list updates automatically — but RULES.json in
+ * the Glassmkr monorepo is hand-maintained and must be updated separately.
+ */
+export const ALL_RULE_IDS: readonly string[] = [
+  "ram_high", "swap_high", "disk_space_high", "cpu_iowait_high", "oom_kills",
+  "smart_failing", "nvme_wear_high", "raid_degraded", "disk_latency_high",
+  "interface_errors", "link_speed_mismatch", "interface_saturation",
+  "cpu_temperature_high", "ecc_errors", "psu_redundancy_loss",
+  "ipmi_sel_critical", "ipmi_fan_failure",
+  "ssh_root_password", "no_firewall", "pending_security_updates",
+  "kernel_vulnerabilities", "kernel_needs_reboot", "unattended_upgrades_disabled",
+] as const;
+
 export const allRules: AlertRule[] = [
   // 1. RAM high
   { type: "ram_high", evaluate(snap, t) {
@@ -30,9 +47,9 @@ export const allRules: AlertRule[] = [
       recommendation: "Check: ps aux --sort=-rss | head -20" }];
   }},
   // 2. Swap active
-  { type: "swap_active", evaluate(snap, t) {
+  { type: "swap_high", evaluate(snap, t) {
     if (t.swap_alert === false || !snap.memory || snap.memory.swap_used_mb <= 0) return [];
-    return [{ type: "swap_active", severity: "warning", title: `Swap in use: ${snap.memory.swap_used_mb}MB`,
+    return [{ type: "swap_high", severity: "warning", title: `Swap in use: ${snap.memory.swap_used_mb}MB`,
       message: "Server is using swap space, indicating memory pressure.",
       evidence: { swap_used_mb: snap.memory.swap_used_mb },
       recommendation: "Check: free -h && ps aux --sort=-rss | head -20" }];

@@ -32,7 +32,7 @@ visibility, not as bugs.
 - **Populated by**: `collectMemory` (`src/collect/memory.ts`)
 - **Status**: OK
 
-### 2. `swap_active` (`rules.ts:32`)
+### 2. `swap_high` (`rules.ts:32`)
 - **Reads from**: `snap.memory.swap_used_mb`, threshold `t.swap_alert`
 - **Populated by**: `collectMemory`
 - **Status**: OK

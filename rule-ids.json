@@ -1,0 +1,29 @@
+{
+  "$comment": "Static, hand-maintained list of every rule ID this collector ships. Kept in sync with src/alerts/rules.ts (ALL_RULE_IDS). Published in the npm package so tooling can read it without dynamic-importing the CLI module. CI checks the two stay in sync.",
+  "version": 1,
+  "rule_ids": [
+    "ram_high",
+    "swap_high",
+    "disk_space_high",
+    "cpu_iowait_high",
+    "oom_kills",
+    "smart_failing",
+    "nvme_wear_high",
+    "raid_degraded",
+    "disk_latency_high",
+    "interface_errors",
+    "link_speed_mismatch",
+    "interface_saturation",
+    "cpu_temperature_high",
+    "ecc_errors",
+    "psu_redundancy_loss",
+    "ipmi_sel_critical",
+    "ipmi_fan_failure",
+    "ssh_root_password",
+    "no_firewall",
+    "pending_security_updates",
+    "kernel_vulnerabilities",
+    "kernel_needs_reboot",
+    "unattended_upgrades_disabled"
+  ]
+}

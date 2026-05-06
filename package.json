@@ -4,6 +4,21 @@
   "description": "Lightweight bare metal server monitoring. IPMI, SMART, OS, network. Opinionated alerts.",
   "type": "module",
   "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "default": "./dist/api.js"
+    },
+    "./rule-ids.json": "./rule-ids.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "rule-ids.json",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "glassmkr-crucible": "./dist/index.js"
   },
