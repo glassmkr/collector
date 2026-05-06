@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Pre-1.0 convention: minor bumps may include breaking changes; we call them
 out under `### Breaking` so downstream consumers can audit.
 
+## [0.8.1] - 2026-05-06
+
+Patch release closing P1 bugs Codex identified in 0.8.0. No new
+features, no schema changes. Recommended upgrade for anyone running
+0.8.0.
+
+### Fixed
+- **AMD k10temp / zenpower CPU temperature is now produced even when
+  Tdie is unavailable**. 0.8.0 always skipped Tctl and never picked
+  Tccd as a CPU reading, so kernels exposing only Tctl, or only Tccd*,
+  produced no CPU reading and `cpu_temperature_high` couldn't fire on
+  affected AMD hosts. Fallback order: Tdie → first Tccd → Tctl. Tctl
+  now also surfaces in `other_readings` rather than being silently
+  dropped.
+- **`cpu_temperature_high` IPMI fallback no longer false-fires on
+  non-temperature sensors.** 0.8.0's filter accepted any sensor whose
+  name contained `cpu` or `temp`, ignoring the unit. A `CPU_FAN1`
+  reading 2000 RPM would alert as `2000°C critical`. Filter now
+  requires the sensor unit to indicate temperature (`C`, `°C`,
+  `degrees C`, etc.), the name to include `cpu` or `processor`, and
+  excludes ambient/inlet/PCH/DIMM/PSU sensors that happen to read in
+  °C. Mirrors Forge's evaluator.
+- **`psu_redundancy_loss` now matches IPMI discrete `cr`/`nr` status
+  codes.** 0.8.0 only matched the text `fail`/`absent`. ipmitool
+  commonly reports critical PSU states as the short codes `cr`
+  (critical) or `nr` (non-recoverable) in the status column; on
+  Supermicro and Dell that meant a PSU in fault state with status
+  `cr` and a hex value did not fire unless the Dell aggregate
+  redundancy field happened to save it.
+- **DMI `Hewlett-Packard Company` is now classified as `hpe`.** 0.8.0's
+  legacy-HP regex `(^|\W)hp(\W|$)` did not match the literal
+  "Hewlett-Packard" string (no `HP` token in `Hewlett`). Added explicit
+  `Hewlett-Packard` / `Hewlett Packard` matching, ahead of the
+  standalone `HP` rule. Tightened the standalone `HP` rule to
+  whitespace boundaries only so `HP-UX` (an OS name) doesn't
+  false-match.
+
+### Internal
+- 18 new regression tests covering the four fixes above. Total tests:
+  168 (was 150).
+- Glassmkr's `validate-rule-ids.mjs` now schema-checks `RULES.json`
+  before running drift comparison: catches invalid `side` values,
+  duplicate IDs, malformed entries, non-snake_case ids.
+
+### Note on Forge integration
+
+The Codex review against 0.8.0 flagged that Forge's server-side
+evaluator doesn't yet read the new `snap.thermal`,
+`snap.ipmi.ecc_errors_from_sel`, `snap.ipmi.psu_redundancy_state`, or
+`snap.dmi` fields. **Collector-side rules (used for Telegram / Slack /
+email notifications shipped directly from the agent) DO use these
+fields.** The Forge dashboard alerts come from a separate server-side
+evaluator that needs to be extended in a future Forge release. Snapshot
+ingestion accepts the new fields without erroring (TS cast, no Zod);
+they're persisted but not yet evaluated.
+
+This is a Forge feature gap, not a 0.8.0 / 0.8.1 collector bug.
+
 ## [0.8.0] - 2026-05-06
 
 ### Added
