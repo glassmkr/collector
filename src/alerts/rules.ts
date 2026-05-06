@@ -1,4 +1,4 @@
-// Collector-side alert rules. Currently 22 rules covering RAM/swap/disk,
+// Collector-side alert rules. Currently 23 rules covering RAM/swap/disk,
 // CPU, SMART, RAID, network, IPMI thermal/ECC/PSU/SEL/fan, and security.
 // Forge runs an additional set of server-side rules on top of these
 // (predictive, fleet-wide). See RULES_COUNT.md (TBD) for the canonical

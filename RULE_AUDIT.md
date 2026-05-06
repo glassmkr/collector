@@ -148,10 +148,10 @@ visibility, not as bugs.
 
 ## Summary
 
-- **Total rules**: 22 (numbered up to 23 because of historical gaps in
-  the numbering scheme; one comment-numbered slot is unused).
-- **DEAD before this commit**: 1 (`disk_latency_high`). Fixed.
-- **DEAD after this commit**: 0.
+- **Total rules**: 23 (the file header comment was historically wrong about
+  this count; numbering also has gaps from rule renames over time).
+- **DEAD before disk-latency fix**: 1 (`disk_latency_high`). Fixed.
+- **DEAD currently**: 0.
 - **DEPENDS_ON_HARDWARE**: 8 (5 IPMI rules, 2 SMART/NVMe, 1 mdraid).
 - **DEPENDS_ON_FLAG**: 1 (`smart_failing` requires `collection.smart`).
 - **Hardware-independent (always evaluable on any Linux host)**: 14.
