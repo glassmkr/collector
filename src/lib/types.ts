@@ -9,6 +9,7 @@ export interface Snapshot {
   network: NetworkInfo[];
   raid: RaidInfo[];
   ipmi: IpmiInfo;
+  dmi?: DmiInfo;
   thermal?: ThermalInfo;
   os_alerts: OsAlerts;
   security?: SecurityData;
@@ -196,6 +197,30 @@ export interface FanStatus {
   status: string;
 }
 
+export type Vendor =
+  | "dell"
+  | "hpe"
+  | "supermicro"
+  | "asrockrack"
+  | "lenovo"
+  | "inspur"
+  | "cisco"
+  | "generic"
+  | "virtual";
+
+export interface DmiInfo {
+  available: boolean;
+  vendor: Vendor;
+  /** Exact /sys/class/dmi/id/sys_vendor contents, trimmed. */
+  raw_vendor: string | null;
+  product_name: string | null;
+  bios_version: string | null;
+  bios_date: string | null;
+  is_virtual: boolean;
+}
+
+export type PsuRedundancyState = "fully_redundant" | "redundancy_lost" | "redundancy_degraded" | "unknown";
+
 export interface IpmiInfo {
   available: boolean;
   sensors: Array<{
@@ -206,6 +231,24 @@ export interface IpmiInfo {
     upper_critical?: number;
   }>;
   ecc_errors: { correctable: number; uncorrectable: number };
+  /**
+   * ECC error counts derived from SEL events instead of named sensors.
+   * Dell iDRAC reports memory ECC only via SEL on the Memory entity, so
+   * the named-sensor counter (`ecc_errors`) stays at zero on Dell. The
+   * `ecc_errors` rule reads max(named, sel) to cover both vendors.
+   * Cumulative since last SEL clear, not rate over interval.
+   */
+  ecc_errors_from_sel?: {
+    correctable: number;
+    uncorrectable: number;
+    newest_event_timestamp: string | null;
+  };
+  /**
+   * Aggregate PSU redundancy state from a vendor sensor (currently Dell
+   * `PS Redundancy` only). Undefined on hosts where no aggregate sensor
+   * exists; the rule then falls back to per-PSU status checks.
+   */
+  psu_redundancy_state?: PsuRedundancyState;
   sel_entries_count: number;
   sel_events_recent: SelEvent[];
   fans: FanStatus[];

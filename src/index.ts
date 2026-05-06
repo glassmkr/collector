@@ -69,7 +69,8 @@ import { collectSystemd } from "./collect/systemd.js";
 import { collectNtp } from "./collect/ntp.js";
 import { collectFileDescriptors } from "./collect/fd.js";
 import { collectThermal } from "./collect/thermal.js";
-import type { Snapshot, IpmiInfo } from "./lib/types.js";
+import { collectDmi, formatVendorLine } from "./collect/dmi.js";
+import type { Snapshot, IpmiInfo, DmiInfo } from "./lib/types.js";
 import { consumeRebootMarker, type PlannedReboot } from "./lib/reboot-marker.js";
 
 // Consume the planned-reboot marker once at startup. If the operator ran
@@ -102,6 +103,18 @@ if (config.forge.tls_pin) {
 
 const emptyIpmi: IpmiInfo = { available: false, sensors: [], ecc_errors: { correctable: 0, uncorrectable: 0 }, sel_entries_count: 0, sel_events_recent: [], fans: [] };
 
+// DMI is read once at startup; sys_vendor / product_name don't change for
+// the lifetime of the process.
+let cachedDmi: DmiInfo | undefined;
+if (config.collection.dmi) {
+  try {
+    cachedDmi = await collectDmi();
+    console.log(`[collector] ${formatVendorLine(cachedDmi)}`);
+  } catch (err) {
+    console.error("[dmi] Detection error:", err);
+  }
+}
+
 // Security checks run once per hour (every 12th cycle at 5-min intervals)
 let securityCycleCount = 0;
 let cachedSecurity: SecurityData | undefined;
@@ -118,7 +131,7 @@ async function collect() {
     config.collection.smart ? collectSmart() : Promise.resolve([]),
     collectNetwork(),
     collectRaid(),
-    config.collection.ipmi ? collectIpmi() : Promise.resolve(emptyIpmi),
+    config.collection.ipmi ? collectIpmi(cachedDmi?.vendor ?? "generic") : Promise.resolve(emptyIpmi),
     collectOsAlerts(),
   ]);
 
@@ -134,6 +147,7 @@ async function collect() {
     timestamp: new Date().toISOString(),
     system, cpu, memory, disks, smart, network, raid, ipmi, os_alerts: osAlerts,
     security: cachedSecurity,
+    dmi: cachedDmi,
   };
 
   // Single-shot: the very first snapshot after a marked reboot carries

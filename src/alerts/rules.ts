@@ -10,6 +10,7 @@
 
 import type { Snapshot, AlertResult } from "../lib/types.js";
 import type { Config } from "../config.js";
+import { isPsuSensor } from "../lib/vendor-sensors.js";
 
 export interface AlertRule {
   type: string;
@@ -211,30 +212,67 @@ export const allRules: AlertRule[] = [
     });
   }},
   // 14. ECC errors
+  // Reads max(named-sensor counts, SEL-derived counts). Dell iDRAC does
+  // not expose ECC as named numeric sensors; SEL is the only signal.
+  // Supermicro / HPE / ASRockRack expose them as named sensors.
+  // Caveat: SEL counts are cumulative since last SEL clear, not rate.
   { type: "ecc_errors", evaluate(snap) {
     if (!snap.ipmi?.ecc_errors) return [];
-    const { correctable, uncorrectable } = snap.ipmi.ecc_errors;
+    const named = snap.ipmi.ecc_errors;
+    const sel = snap.ipmi.ecc_errors_from_sel ?? { correctable: 0, uncorrectable: 0, newest_event_timestamp: null };
+    const correctable = Math.max(named.correctable, sel.correctable);
+    const uncorrectable = Math.max(named.uncorrectable, sel.uncorrectable);
     if (correctable <= 0 && uncorrectable <= 0) return [];
+    const sourceUsed = (sel.correctable > named.correctable || sel.uncorrectable > named.uncorrectable) ? "ipmi_sel" : "ipmi_sensors";
+    const sourceLabel = sourceUsed === "ipmi_sel" ? "IPMI SEL events" : "IPMI named sensors";
     if (uncorrectable > 0) return [{ type: "ecc_errors", severity: "critical",
-      title: `${uncorrectable} uncorrectable ECC error(s)`, message: "Data corruption possible. DIMM failing.",
-      evidence: { correctable, uncorrectable },
-      recommendation: "Replace DIMM immediately. Run: ipmitool sdr type Memory" }];
+      title: `${uncorrectable} uncorrectable ECC error(s)`,
+      message: `${uncorrectable} uncorrectable ECC error(s) from ${sourceLabel}. Data corruption possible. DIMM failing.`,
+      evidence: { correctable, uncorrectable, source: sourceUsed, named, sel },
+      recommendation: "Replace DIMM immediately. Run: ipmitool sel elist | grep -i memory" }];
     return [{ type: "ecc_errors", severity: "warning",
-      title: `${correctable} correctable ECC error(s)`, message: "Early warning of DIMM failure.",
-      evidence: { correctable, uncorrectable },
-      recommendation: "Schedule DIMM replacement. Run: ipmitool sdr type Memory" }];
+      title: `${correctable} correctable ECC error(s)`,
+      message: `${correctable} correctable ECC error(s) from ${sourceLabel}. Early warning of DIMM failure.`,
+      evidence: { correctable, uncorrectable, source: sourceUsed, named, sel },
+      recommendation: "Schedule DIMM replacement. Run: ipmitool sel elist | grep -i memory" }];
   }},
   // 15. PSU redundancy
+  // Two paths:
+  //   A. Per-PSU status: filter individual PSU sensors via vendor-aware
+  //      classifier (covers Supermicro `PSU1 Status`, HPE `Power Supply 1`,
+  //      Dell `PS1 Status`). If 2+ PSUs and any has failed/absent, fire.
+  //   B. Aggregate redundancy state (Dell `PS Redundancy` only today): if
+  //      anything other than fully_redundant or unknown, fire — even when
+  //      individual PS sensors look OK. This catches "redundancy degraded"
+  //      cases the per-PSU path would miss.
   { type: "psu_redundancy_loss", evaluate(snap) {
-    if (!snap.ipmi?.available || !snap.ipmi.sensors) return [];
-    const psus = snap.ipmi.sensors.filter(s => { const n = s.name.toLowerCase(); return n.includes("psu") || n.includes("power supply"); });
+    if (!snap.ipmi?.available) return [];
+    const vendor = snap.dmi?.vendor ?? "generic";
+
+    // Path B: aggregate redundancy state
+    const redundancyState = snap.ipmi.psu_redundancy_state;
+    if (redundancyState && redundancyState !== "fully_redundant" && redundancyState !== "unknown") {
+      return [{ type: "psu_redundancy_loss", severity: "critical",
+        title: "PSU redundancy lost",
+        message: `BMC reports redundancy state: ${redundancyState.replace(/_/g, " ")}.`,
+        evidence: { redundancy_state: redundancyState, source: "aggregate_sensor", vendor },
+        recommendation: "Replace failed PSU. Check power connections and BMC `ipmitool chassis status`." }];
+    }
+
+    // Path A: per-PSU sensor status
+    if (!snap.ipmi.sensors) return [];
+    const psus = snap.ipmi.sensors.filter(s => isPsuSensor(s.name, vendor));
     if (psus.length < 2) return [];
-    const failed = psus.filter(s => { const st = String(s.status).toLowerCase(); const v = String(s.value).toLowerCase();
-      return st.includes("fail") || st.includes("absent") || v.includes("fail") || v.includes("absent"); });
+    const failed = psus.filter(s => {
+      const st = String(s.status).toLowerCase();
+      const v = String(s.value).toLowerCase();
+      return st.includes("fail") || st.includes("absent") || v.includes("fail") || v.includes("absent");
+    });
     if (failed.length === 0) return [];
     return [{ type: "psu_redundancy_loss", severity: "critical",
-      title: "PSU redundancy lost", message: `${failed.length} PSU(s) failed/absent: ${failed.map(p => p.name).join(", ")}.`,
-      evidence: { failed: failed.map(p => ({ name: p.name, status: p.status })) },
+      title: "PSU redundancy lost",
+      message: `${failed.length} PSU(s) failed/absent: ${failed.map(p => p.name).join(", ")}.`,
+      evidence: { failed: failed.map(p => ({ name: p.name, status: p.status })), source: "per_psu_sensors", vendor },
       recommendation: "Replace failed PSU. Check power connections." }];
   }},
   // 19. IPMI SEL critical events

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifySensor, deriveSelSeverity, parseSelTimestamp, parseFanStatus } from "../ipmi.js";
+import { classifySensor, deriveSelSeverity, parseSelTimestamp, parseFanStatus, parseSelEccCounts } from "../ipmi.js";
 
 describe("classifySensor", () => {
   it("recognizes memory sensors", () => {
@@ -92,5 +92,39 @@ describe("parseFanStatus", () => {
     const raw = "FAN1 | 30h | 7.1 | 0 RPM";
     const fans = parseFanStatus(raw);
     expect(fans[0].status).toBe("critical");
+  });
+});
+
+describe("parseSelEccCounts (Dell-style SEL output)", () => {
+  it("counts correctable and uncorrectable Memory ECC events", () => {
+    const raw = [
+      "1 | 04/05/2026 | 14:23:05 | Memory | Correctable ECC | Asserted",
+      "2 | 04/05/2026 | 14:25:11 | Memory | Correctable ECC | Asserted",
+      "3 | 04/05/2026 | 14:30:00 | Memory | Uncorrectable ECC | Asserted",
+      "4 | 04/05/2026 | 14:31:00 | Power Supply 1 | AC lost | Asserted",
+    ].join("\n");
+    const counts = parseSelEccCounts(raw);
+    expect(counts.correctable).toBe(2);
+    expect(counts.uncorrectable).toBe(1);
+    // Only matched (memory ECC) events count toward newest_event_timestamp.
+    // The 14:31:00 power-supply event is correctly excluded.
+    expect(counts.newest_event_timestamp).toBe("2026-04-05T14:30:00Z");
+  });
+
+  it("matches DIMM-slot sensor names too", () => {
+    const raw = "1 | 04/05/2026 | 14:23:05 | DIMM_A1 | Correctable ECC | Asserted";
+    const counts = parseSelEccCounts(raw);
+    expect(counts.correctable).toBe(1);
+  });
+
+  it("returns zero for unrelated events", () => {
+    const raw = "1 | 04/05/2026 | 14:23:05 | Watchdog | Hard reset | Asserted";
+    const counts = parseSelEccCounts(raw);
+    expect(counts.correctable).toBe(0);
+    expect(counts.uncorrectable).toBe(0);
+  });
+
+  it("handles empty input", () => {
+    expect(parseSelEccCounts("")).toEqual({ correctable: 0, uncorrectable: 0, newest_event_timestamp: null });
   });
 });

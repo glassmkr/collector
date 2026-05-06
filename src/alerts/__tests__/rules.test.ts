@@ -33,6 +33,150 @@ function emptySnap(): Snapshot {
 
 const diskLatencyRule = allRules.find(r => r.type === "disk_latency_high")!;
 const cpuTempRule = allRules.find(r => r.type === "cpu_temperature_high")!;
+const eccRule = allRules.find(r => r.type === "ecc_errors")!;
+const psuRule = allRules.find(r => r.type === "psu_redundancy_loss")!;
+
+describe("ecc_errors (Dell-style SEL path)", () => {
+  it("fires when SEL ECC counts are higher than named-sensor counts", () => {
+    const snap = emptySnap();
+    snap.ipmi = {
+      available: true, sensors: [],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      ecc_errors_from_sel: { correctable: 3, uncorrectable: 0, newest_event_timestamp: "2026-04-05T14:31:00Z" },
+      sel_entries_count: 3, sel_events_recent: [], fans: [],
+    };
+    const out = eccRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].severity).toBe("warning");
+    expect(out[0].evidence.source).toBe("ipmi_sel");
+    expect(out[0].evidence.correctable).toBe(3);
+  });
+
+  it("uses named-sensor source when those counts exceed SEL", () => {
+    const snap = emptySnap();
+    snap.ipmi = {
+      available: true, sensors: [],
+      ecc_errors: { correctable: 5, uncorrectable: 0 },
+      ecc_errors_from_sel: { correctable: 0, uncorrectable: 0, newest_event_timestamp: null },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = eccRule.evaluate(snap, baseThresholds);
+    expect(out[0].evidence.source).toBe("ipmi_sensors");
+    expect(out[0].evidence.correctable).toBe(5);
+  });
+
+  it("does not double-count when both sources are populated; uses max", () => {
+    const snap = emptySnap();
+    snap.ipmi = {
+      available: true, sensors: [],
+      ecc_errors: { correctable: 2, uncorrectable: 0 },
+      ecc_errors_from_sel: { correctable: 5, uncorrectable: 0, newest_event_timestamp: "2026-04-05T14:31:00Z" },
+      sel_entries_count: 5, sel_events_recent: [], fans: [],
+    };
+    const out = eccRule.evaluate(snap, baseThresholds);
+    expect(out[0].evidence.correctable).toBe(5); // max(2, 5)
+  });
+
+  it("escalates to critical on uncorrectable from SEL", () => {
+    const snap = emptySnap();
+    snap.ipmi = {
+      available: true, sensors: [],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      ecc_errors_from_sel: { correctable: 0, uncorrectable: 1, newest_event_timestamp: "2026-04-05T14:31:00Z" },
+      sel_entries_count: 1, sel_events_recent: [], fans: [],
+    };
+    const out = eccRule.evaluate(snap, baseThresholds);
+    expect(out[0].severity).toBe("critical");
+  });
+
+  it("does not fire when both sources are zero", () => {
+    const snap = emptySnap();
+    snap.ipmi.available = true;
+    expect(eccRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+});
+
+describe("psu_redundancy_loss (Dell + Supermicro)", () => {
+  it("fires from aggregate redundancy state on Dell even if individual PS sensors look OK", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "dell", raw_vendor: "Dell Inc.", product_name: "PowerEdge R740", bios_version: "2.21", bios_date: "2024-08-15", is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PS1 Status", value: "0x01", unit: "discrete", status: "ok" },
+        { name: "PS2 Status", value: "0x01", unit: "discrete", status: "ok" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      psu_redundancy_state: "redundancy_lost",
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = psuRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].evidence.source).toBe("aggregate_sensor");
+    expect(out[0].evidence.redundancy_state).toBe("redundancy_lost");
+  });
+
+  it("fires from per-PSU status on Dell when redundancy state is not set", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "dell", raw_vendor: "Dell Inc.", product_name: "PowerEdge R740", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PS1 Status", value: "0x01", unit: "discrete", status: "ok" },
+        { name: "PS2 Status", value: "Failure detected", unit: "discrete", status: "failure" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = psuRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].evidence.source).toBe("per_psu_sensors");
+    expect(out[0].evidence.vendor).toBe("dell");
+  });
+
+  it("fires on Supermicro PSU1 Status critical (no regression from old behaviour)", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "supermicro", raw_vendor: "Supermicro", product_name: "X11", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PSU1 Status", value: "absent", unit: "discrete", status: "absent" },
+        { name: "PSU2 Status", value: "OK", unit: "discrete", status: "ok" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = psuRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].evidence.vendor).toBe("supermicro");
+  });
+
+  it("does not fire on a VM with no PSU sensors", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "virtual", raw_vendor: "QEMU", product_name: "Standard PC", bios_version: null, bios_date: null, is_virtual: true };
+    snap.ipmi = {
+      available: true, sensors: [], ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(psuRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+
+  it("does not fire when fully redundant on Dell", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "dell", raw_vendor: "Dell Inc.", product_name: "PowerEdge R740", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PS1 Status", value: "0x01", unit: "discrete", status: "ok" },
+        { name: "PS2 Status", value: "0x01", unit: "discrete", status: "ok" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      psu_redundancy_state: "fully_redundant",
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(psuRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+});
 
 describe("cpu_temperature_high (hwmon path)", () => {
   it("fires from hwmon when no IPMI is available (Pi)", () => {

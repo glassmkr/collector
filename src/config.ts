@@ -9,6 +9,7 @@ const ConfigSchema = z.object({
     ipmi: z.boolean().default(true),
     smart: z.boolean().default(true),
     thermal: z.boolean().default(true),
+    dmi: z.boolean().default(true),
   }).default({}),
   forge: z.object({
     enabled: z.boolean().default(false),

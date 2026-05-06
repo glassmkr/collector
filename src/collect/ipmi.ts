@@ -1,7 +1,8 @@
 import { run } from "../lib/exec.js";
-import type { IpmiInfo, SelEvent, FanStatus } from "../lib/types.js";
+import type { IpmiInfo, SelEvent, FanStatus, Vendor, PsuRedundancyState } from "../lib/types.js";
+import { isPsuRedundancySensor, classifyPsuRedundancyState } from "../lib/vendor-sensors.js";
 
-export async function collectIpmi(): Promise<IpmiInfo> {
+export async function collectIpmi(vendor: Vendor = "generic"): Promise<IpmiInfo> {
   const sensorRaw = await run("ipmitool", ["sensor"]);
   if (!sensorRaw) {
     return { available: false, sensors: [], ecc_errors: { correctable: 0, uncorrectable: 0 }, sel_entries_count: 0, sel_events_recent: [], fans: [] };
@@ -53,6 +54,23 @@ export async function collectIpmi(): Promise<IpmiInfo> {
   // SEL recent events
   const selEvents = await collectSelEvents();
 
+  // ECC errors from SEL events (Dell iDRAC reports memory ECC only via SEL).
+  // Counts ALL events since last SEL clear, not just the recent window —
+  // re-parse the full SEL elist for accurate cumulative counts.
+  const selEccCounts = await collectSelEccCounts();
+
+  // PSU redundancy state from a vendor sensor (Dell `PS Redundancy`).
+  let psuRedundancyState: PsuRedundancyState | undefined;
+  for (const s of sensors) {
+    if (isPsuRedundancySensor(s.name, vendor)) {
+      const stateText = String(s.status).toLowerCase() === "ok"
+        ? String(s.value)  // value carries the redundancy text on some firmwares
+        : String(s.status);
+      psuRedundancyState = classifyPsuRedundancyState(stateText);
+      break;
+    }
+  }
+
   // Fan status
   const fans = await collectFanStatus();
 
@@ -60,10 +78,53 @@ export async function collectIpmi(): Promise<IpmiInfo> {
     available: true,
     sensors,
     ecc_errors: { correctable, uncorrectable },
+    ecc_errors_from_sel: selEccCounts,
+    psu_redundancy_state: psuRedundancyState,
     sel_entries_count: selCount,
     sel_events_recent: selEvents,
     fans,
   };
+}
+
+/**
+ * Re-parse the full SEL elist counting ECC events on the Memory entity.
+ * Used for vendors (notably Dell) that don't expose ECC counters as
+ * named sensors. Returns cumulative counts since last SEL clear.
+ */
+export async function collectSelEccCounts(): Promise<{ correctable: number; uncorrectable: number; newest_event_timestamp: string | null }> {
+  const output = await run("ipmitool", ["sel", "elist"]);
+  if (!output) return { correctable: 0, uncorrectable: 0, newest_event_timestamp: null };
+  return parseSelEccCounts(output);
+}
+
+export function parseSelEccCounts(output: string): { correctable: number; uncorrectable: number; newest_event_timestamp: string | null } {
+  let correctable = 0;
+  let uncorrectable = 0;
+  let newest: string | null = null;
+  for (const line of output.split("\n")) {
+    const parts = line.split("|").map(s => s.trim());
+    if (parts.length < 5) continue;
+    const [_id, date, time, sensor, event] = parts;
+    const sensorLower = sensor.toLowerCase();
+    const eventLower = event.toLowerCase();
+    // Memory entity: Dell uses sensor names like "Memory", "ECC Corr Err",
+    // "ECC Uncorr Err", or DIMM-slot identifiers. Match on sensor type
+    // tokens or the event description directly.
+    const isMemoryRelated =
+      sensorLower.includes("memory") ||
+      sensorLower.includes("dimm") ||
+      sensorLower.includes("ecc") ||
+      eventLower.includes("ecc");
+    if (!isMemoryRelated) continue;
+    if (eventLower.includes("uncorrectable") || eventLower.includes("uncorr")) {
+      uncorrectable++;
+    } else if (eventLower.includes("correctable") || eventLower.includes("corr")) {
+      correctable++;
+    }
+    const ts = parseSelTimestamp(date, time);
+    if (!newest || ts > newest) newest = ts;
+  }
+  return { correctable, uncorrectable, newest_event_timestamp: newest };
 }
 
 async function collectSelEvents(): Promise<SelEvent[]> {

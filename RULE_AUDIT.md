@@ -94,16 +94,15 @@ visibility, not as bugs.
 - **Status**: OK (primary path works on any Linux host with hwmon: Pi, Dell, HPE, Supermicro). IPMI fallback retained for hosts where hwmon yields no CPU readings but IPMI does.
 
 ### 14. `ecc_errors` (`rules.ts:187`)
-- **Reads from**: `snap.ipmi.ecc_errors.{correctable, uncorrectable}`
-- **Populated by**: `collectIpmi` (sums sensors whose name contains `correctable`/`uncorrectable`)
-- **Status**: DEPENDS_ON_HARDWARE(`BMC`)
-- **Known issue**: Dell does not expose ECC counters as named sensors; reports them only as SEL events. Counter stays at 0 on Dell. To be fixed by `CC_CRUCIBLE_DELL_VENDOR_HANDLING.md`.
+- **Reads from**: `snap.ipmi.ecc_errors.{correctable, uncorrectable}` and `snap.ipmi.ecc_errors_from_sel.{correctable, uncorrectable}`. Uses max of the two sources.
+- **Populated by**: `collectIpmi` (named-sensor sum + SEL parse via `parseSelEccCounts`)
+- **Status**: OK on Dell, Supermicro, HPE, ASRockRack. DEPENDS_ON_HARDWARE(`BMC`).
+- **Note**: SEL counts are cumulative since last SEL clear, named-sensor counts are typically current rate. Alert payload calls out which source fired.
 
 ### 15. `psu_redundancy_loss` (`rules.ts:201`)
-- **Reads from**: `snap.ipmi.{available, sensors[].name, value, status}`
-- **Populated by**: `collectIpmi`
-- **Status**: DEPENDS_ON_HARDWARE(`BMC + redundant PSU`)
-- **Known issue**: substring filter `n.includes("psu") || n.includes("power supply")` misses Dell (`PS1 Status`, `PS2 Status`, `PS Redundancy`). To be fixed by `CC_CRUCIBLE_DELL_VENDOR_HANDLING.md`.
+- **Reads from**: `snap.ipmi.psu_redundancy_state` (Dell aggregate path) and `snap.ipmi.sensors[]` filtered through `isPsuSensor(name, vendor)`. Vendor read from `snap.dmi.vendor`.
+- **Populated by**: `collectIpmi` (uses `isPsuRedundancySensor` for the aggregate; rule uses vendor-aware `isPsuSensor` for individual PSUs)
+- **Status**: OK on Dell (both paths), Supermicro / HPE / ASRockRack (per-PSU path). DEPENDS_ON_HARDWARE(`BMC + redundant PSU`).
 
 ### 16. `ipmi_sel_critical` (`rules.ts:214`)
 - **Reads from**: `snap.ipmi.{available, sel_events_recent[]}`
@@ -159,10 +158,5 @@ visibility, not as bugs.
 
 ## Open issues found incidentally
 
-- **Rules 13, 14, 15** silently no-op on Dell PowerEdge because of vendor-naming
-  assumptions in their substring filters. Tracked in `CC_CRUCIBLE_DELL_VENDOR_HANDLING.md`
-  and `CC_CRUCIBLE_HWMON_THERMAL.md`. Not fixed in this commit.
-- **No `/sys/class/thermal` or `/sys/class/hwmon` collection** — Pi 4/5 and any
-  no-BMC host has zero CPU thermal coverage. Tracked in `CC_CRUCIBLE_HWMON_THERMAL.md`.
 - **No IPMI capability detection** — agent retries `ipmitool` four times every
   cycle on hosts without a BMC. Tracked in `CC_CRUCIBLE_IPMI_CAPABILITY_DETECTION.md`.
