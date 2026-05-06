@@ -1,6 +1,12 @@
-// Alert rules for the collector are identical to the Forge evaluator.
-// Re-export from a shared definition to avoid duplication.
-// For the collector, we use the same 15 rules but with local thresholds from config.
+// Collector-side alert rules. Currently 22 rules covering RAM/swap/disk,
+// CPU, SMART, RAID, network, IPMI thermal/ECC/PSU/SEL/fan, and security.
+// Forge runs an additional set of server-side rules on top of these
+// (predictive, fleet-wide). See RULES_COUNT.md (TBD) for the canonical
+// customer-facing total.
+//
+// When you add or remove a rule, also update:
+//   - RULE_AUDIT.md (one section per rule)
+//   - the count in this header comment
 
 import type { Snapshot, AlertResult } from "../lib/types.js";
 import type { Config } from "../config.js";
@@ -86,17 +92,47 @@ export const allRules: AlertRule[] = [
         recommendation: "Replace failed drive immediately." }));
   }},
   // 9. Disk latency
+  // Reads `snap.io_latency` (populated by `collectIoLatency` from /proc/diskstats
+  // deltas), not `snap.disks` (which never had a latency field populated). The
+  // pre-fix version of this rule referenced `d.latency_p99_ms` on `snap.disks`
+  // and never fired on any host, ever.
+  //
+  // io-latency reports avg_read_latency_ms / avg_write_latency_ms over the
+  // collection interval (not p99). We take max(read, write) per device and
+  // compare against the per-class threshold:
+  //   nvme*: t.disk_latency_nvme_ms (default 50ms)
+  //   sd*/vd*/xvd*/md*: t.disk_latency_hdd_ms (default 200ms)
+  // 50ms healthy NVMe is generous; SATA SSD and HDD use the 200ms bucket.
   { type: "disk_latency_high", evaluate(snap, t) {
-    if (!snap.disks) return [];
-    return snap.disks.filter(d => {
-      if (d.latency_p99_ms == null) return false;
-      const thresh = d.device.includes("nvme") ? (t.disk_latency_nvme_ms ?? 50) : (t.disk_latency_hdd_ms ?? 200);
-      return d.latency_p99_ms >= thresh;
-    }).map(d => ({ type: "disk_latency_high", severity: "warning" as const,
-      title: `Disk ${d.device} latency ${d.latency_p99_ms!.toFixed(1)}ms`,
-      message: `p99 I/O latency on ${d.device} is high.`,
-      evidence: { device: d.device, latency_p99_ms: d.latency_p99_ms },
-      recommendation: "Check: iotop -oP" }));
+    if (!snap.io_latency || snap.io_latency.length === 0) return [];
+    const findings: AlertResult[] = [];
+    for (const entry of snap.io_latency) {
+      const r = entry.avg_read_latency_ms;
+      const w = entry.avg_write_latency_ms;
+      if (r == null && w == null) continue;
+      // No samples this interval (read_iops + write_iops both 0): skip silently.
+      if ((entry.read_iops ?? 0) === 0 && (entry.write_iops ?? 0) === 0) continue;
+      const worst = Math.max(r ?? 0, w ?? 0);
+      if (worst <= 0) continue;
+      const isNvme = entry.device.startsWith("nvme");
+      const thresh = isNvme ? (t.disk_latency_nvme_ms ?? 50) : (t.disk_latency_hdd_ms ?? 200);
+      if (worst < thresh) continue;
+      findings.push({
+        type: "disk_latency_high", severity: "warning",
+        title: `Disk ${entry.device} latency ${worst.toFixed(1)}ms`,
+        message: `Average I/O latency on ${entry.device} is high (read ${r ?? 0}ms, write ${w ?? 0}ms over interval).`,
+        evidence: {
+          device: entry.device,
+          avg_read_latency_ms: r,
+          avg_write_latency_ms: w,
+          read_iops: entry.read_iops,
+          write_iops: entry.write_iops,
+          threshold_ms: thresh,
+        },
+        recommendation: "Check: iotop -oP",
+      });
+    }
+    return findings;
   }},
   // 10. Interface errors
   { type: "interface_errors", evaluate(snap) {
