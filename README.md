@@ -129,9 +129,19 @@ Per-rule grace windows are applied separately: bond-slave-down and CPU-temperatu
 
 ## Systemd Service
 
-Create `/etc/systemd/system/glassmkr-crucible.service`:
+The npm prefix differs across distros: Ubuntu's global npm puts binaries in
+`/usr/bin/`, while Debian's defaults to `/usr/local/bin/`. The systemd unit's
+`ExecStart` must point at wherever `glassmkr-crucible` actually landed on
+your host, so detect the path before writing the unit:
 
-```ini
+```bash
+BIN_PATH=$(command -v glassmkr-crucible)
+if [ -z "$BIN_PATH" ]; then
+  echo "ERROR: glassmkr-crucible binary not found on PATH after npm install. Aborting." >&2
+  exit 1
+fi
+
+sudo tee /etc/systemd/system/glassmkr-crucible.service >/dev/null <<UNIT
 [Unit]
 Description=Glassmkr Crucible - Bare Metal Monitoring
 After=network.target
@@ -139,12 +149,13 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/glassmkr-crucible /etc/glassmkr/collector.yaml
+ExecStart=$BIN_PATH /etc/glassmkr/collector.yaml
 Restart=on-failure
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
+UNIT
 ```
 
 Enable and start:
@@ -154,6 +165,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now glassmkr-crucible
 sudo systemctl status glassmkr-crucible
 ```
+
+If you ever upgrade `@glassmkr/crucible` and the binary moves (rare, but
+possible on a distro change), re-run the `command -v` step and update the
+unit file. The bootstrap script at `https://forge.glassmkr.com/install` does
+this detection automatically; the manual flow above is just the equivalent.
 
 ## What It Collects
 
