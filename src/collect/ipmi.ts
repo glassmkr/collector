@@ -1,6 +1,7 @@
 import { run } from "../lib/exec.js";
 import type { IpmiInfo, SelEvent, FanStatus, Vendor, PsuRedundancyState, IpmiCapability } from "../lib/types.js";
 import { isPsuRedundancySensor, classifyPsuRedundancyState } from "../lib/vendor-sensors.js";
+import { filterRedundantCpuDtsSensors } from "../lib/ipmi-sensor-filter.js";
 
 /**
  * Collect IPMI snapshot.
@@ -36,7 +37,7 @@ export async function collectIpmi(vendor: Vendor = "generic", capability?: IpmiC
   }
 
   // Parse sensor readings
-  const sensors: IpmiInfo["sensors"] = [];
+  let sensors: IpmiInfo["sensors"] = [];
   for (const line of sensorRaw.split("\n")) {
     const parts = line.split("|").map((s) => s.trim());
     if (parts.length < 4) continue;
@@ -56,6 +57,13 @@ export async function collectIpmi(vendor: Vendor = "generic", capability?: IpmiC
 
     sensors.push({ name, value, unit, status, upper_critical: upperCritical });
   }
+
+  // Per-socket CPU thermal pre-filter: drop `CPU<N>_DTS` when a sibling
+  // `CPU<N>_TEMP` (or `CPU<N> Temp`) sensor is present. Closes the
+  // Gigabyte BMC firmware 12.61 over-fire on AMD platforms (crucible#2).
+  // Applied before downstream classification so ECC and PSU loops see
+  // the same list that gets published.
+  sensors = filterRedundantCpuDtsSensors(sensors);
 
   // ECC errors from memory-type sensors
   let correctable = 0;

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Pre-1.0 convention: minor bumps may include breaking changes; we call them
 out under `### Breaking` so downstream consumers can audit.
 
+## [0.9.1] - 2026-05-08
+
+### Added
+
+- `glassmkr-crucible init` subcommand for canonical first-run setup. Validates the API key, optionally probes the ingest endpoint, writes `/etc/glassmkr/collector.yaml` (mode 0600), writes a systemd unit at `/etc/systemd/system/glassmkr-crucible.service` (mode 0644) with `ExecStart` pointing at the dynamically-detected binary path, runs `daemon-reload`, and (unless `--no-start`) enables and starts the service. Closes the F2 protocol gap surfaced in the Phase 2 API dogfood synthesis. See README "Quick Start" and `glassmkr-crucible init --help`. Supports `--api-key -` to read the key from stdin (avoids leaking to shell history). Requires root for the filesystem and systemd writes.
+- IPMI sensor classifier: per-socket pre-filter in `src/lib/ipmi-sensor-filter.ts` that drops `CPU<N>_DTS` when `CPU<N>_TEMP` (or `CPU<N> Temp`) is also present on the same socket. Closes [#2](https://github.com/glassmkr/crucible/issues/2): false-positive `cpu_temperature_high` alerts on Gigabyte AMD platforms with BMC firmware 12.61, where `CPU<N>_DTS` reports ~30°C above the actual k10temp die temperature.
+
+### Changed
+
+- README: `init` is now documented as the canonical first-run path. The manual install flow is retained as a "Manual install" section for ops engineers customising the systemd unit, with the dynamic `command -v` snippet from the F5 fix. New "Migrating from manual install" subsection covers the (no-op) upgrade path for existing 0.9.0 hand-rolled setups.
+
+### Backwards-compatibility
+
+- Existing 0.9.0 installations with a hand-written `collector.yaml` and systemd unit continue working unchanged. No migration required.
+- Customers on Gigabyte AMD platforms may see fewer false-positive `cpu_temperature_high` alerts after upgrading. This is the intended fix (#2). The `*_DTS` sensors are dropped in-collector before publish, so Forge's IPMI fallback path no longer sees them; hwmon-primary on Forge already used the correct `k10temp` value, so this also closes the IPMI-fallback parity gap.
+
+### Internal
+
+- New tests: `src/lib/__tests__/ipmi-sensor-filter.test.ts` (11 cases covering Gigabyte AMD, dual-socket EPYC, Dell-style, Supermicro-style, fallback-when-only-DTS, stable order); `src/__tests__/init.test.ts` (23 cases covering API-key validation, YAML emission, systemd unit shape, happy path, `--no-start`, `--force`, stdin, missing binary, connectivity probe 401/5xx/network-error, `--name`, `--ingest-url`, `systemctl enable` failure); `src/__tests__/cli.test.ts` extended with 6 cases for `init` argument parsing.
+- Test count: 210 passing (was 168). Build: 0 type errors.
+
 ## [0.9.0] - 2026-05-07
 
 Aligns Crucible with the Forge programmatic-API workstream. **No

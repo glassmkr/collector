@@ -71,4 +71,47 @@ describe("helpText", () => {
     expect(txt).toContain("-h, --help");
     expect(txt).toContain("-c, --config");
   });
+  it("lists init in the subcommands section", () => {
+    const txt = helpText("0.9.1");
+    expect(txt).toContain("init");
+  });
+});
+
+describe("init subcommand parsing", () => {
+  it("init --api-key K -> mode=init with the key captured", () => {
+    const { result } = parseCliArgs(["init", "--api-key", "gmk_cru_live_abc"], "0.9.1");
+    expect(result.mode).toBe("init");
+    expect(result.init?.apiKey).toBe("gmk_cru_live_abc");
+    expect(result.init?.noStart).toBe(false);
+    expect(result.init?.force).toBe(false);
+  });
+  it("init --api-key=K equals form works", () => {
+    const { result } = parseCliArgs(["init", "--api-key=col_xyz"], "0.9.1");
+    expect(result.init?.apiKey).toBe("col_xyz");
+  });
+  it("init --api-key - (stdin marker) is preserved as the literal -", () => {
+    const { result } = parseCliArgs(["init", "--api-key", "-"], "0.9.1");
+    expect(result.init?.apiKey).toBe("-");
+  });
+  it("init --no-start --force --no-verify flags toggle correctly", () => {
+    const { result } = parseCliArgs(["init", "--api-key", "k", "--no-start", "--force", "--no-verify"], "0.9.1");
+    expect(result.init?.noStart).toBe(true);
+    expect(result.init?.force).toBe(true);
+    expect(result.init?.noVerify).toBe(true);
+  });
+  it("init --name and --ingest-url and --config-path are captured", () => {
+    const { result } = parseCliArgs([
+      "init", "--api-key", "k", "--name", "web-01", "--ingest-url", "https://forge.example.com/api/v1/ingest", "--config-path", "/etc/x.yaml",
+    ], "0.9.1");
+    expect(result.init?.name).toBe("web-01");
+    expect(result.init?.ingestUrl).toBe("https://forge.example.com/api/v1/ingest");
+    expect(result.init?.configPath).toBe("/etc/x.yaml");
+  });
+  it("init --help returns help text instead of running init", () => {
+    const { result, output } = parseCliArgs(["init", "--help"], "0.9.1");
+    expect(result.mode).toBe("help");
+    expect(output).toContain("glassmkr-crucible init");
+    expect(output).toContain("--api-key");
+    expect(output).toContain("--no-start");
+  });
 });

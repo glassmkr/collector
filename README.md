@@ -25,15 +25,26 @@ Open source. MIT licensed. Built by [Glassmkr](https://glassmkr.com). See also [
 
 ## Install
 
+The fastest path: bootstrap script. Detects Node and npm, installs the
+agent, and runs `glassmkr-crucible init` to validate your key, write
+`/etc/glassmkr/collector.yaml`, write the systemd unit, and start the
+service.
+
 ```bash
-npm install -g @glassmkr/crucible
+curl -sf https://forge.glassmkr.com/install | bash -s -- --api-key gmk_cru_live_<your-key>
 ```
 
-Or use the bootstrap script:
+Or run the steps yourself:
 
 ```bash
-curl -sf https://forge.glassmkr.com/install | bash
+sudo npm install -g @glassmkr/crucible
+sudo glassmkr-crucible init --api-key gmk_cru_live_<your-key>
 ```
+
+`init` is the canonical first-run path. It validates the key shape,
+optionally probes the ingest endpoint, writes config + systemd unit
+with the right binary path for your distro, and enables the service.
+Run `glassmkr-crucible init --help` for the full flag list.
 
 ## Docker
 
@@ -66,33 +77,31 @@ Images are published to [ghcr.io/glassmkr/crucible](https://github.com/glassmkr/
 
 ## Quick Start
 
-1. Create an API key in the Forge dashboard (Servers, then Add server).
-2. Drop a config at `/etc/glassmkr/collector.yaml`:
-
-   ```yaml
-   server_name: "web-01"
-   collection:
-     interval_seconds: 300
-     ipmi: true
-     smart: true
-   forge:
-     enabled: true
-     url: "https://forge.glassmkr.com"
-     api_key: "col_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-   ```
-
-3. Run as a systemd service (recommended) or directly:
+1. Create an API key in the Forge dashboard (Servers → Add server).
+2. Run `init`:
 
    ```bash
-   sudo glassmkr-crucible
+   sudo glassmkr-crucible init --api-key gmk_cru_live_<your-key>
    ```
 
-   Snapshots appear in the Forge dashboard within seconds of the first push.
+   This writes `/etc/glassmkr/collector.yaml`, writes the systemd unit,
+   and starts the service. Pass `--name` to override the dashboard
+   server name (defaults to the host's hostname). Pass `--no-start` if
+   you want to inspect the unit before enabling it. Pass `--api-key -`
+   to read the key from stdin (handy for password-manager pipes).
+
+   Snapshots appear in the Forge dashboard within seconds of the first
+   push.
+
+If you can't or won't run `init` (config-management is doing it for
+you, or you're customising the systemd unit), the manual flow is in
+the **Manual install** section below.
 
 ## CLI Reference
 
 ```
 glassmkr-crucible [options]
+glassmkr-crucible init        --api-key <K> [--name <N>] [--ingest-url <U>] [--no-start] [--force] [--no-verify]
 glassmkr-crucible mark-reboot [--reason TEXT] [--ttl DURATION]
 glassmkr-crucible reboot      [--reason TEXT] [--ttl DURATION]
 
@@ -103,6 +112,39 @@ Options:
 ```
 
 `--config=PATH` and the legacy positional form `glassmkr-crucible /path/to.yaml` both work. Without options, Crucible runs as a long-lived collector daemon.
+
+## Configuration
+
+`init` writes `/etc/glassmkr/collector.yaml`. The schema:
+
+```yaml
+server_name: "web-01"
+collection:
+  interval_seconds: 300
+  ipmi: true
+  smart: true
+forge:
+  enabled: true
+  url: "https://forge.glassmkr.com"
+  api_key: "gmk_cru_live_<...>_<4>"
+```
+
+Hand-edit any time. The agent re-reads on restart. Run
+`glassmkr-crucible init --help` for the full flag list.
+
+### Migrating from a manual install
+
+Existing 0.9.0 installs with a hand-written `collector.yaml` and
+systemd unit continue working unchanged on 0.9.1. No migration is
+required.
+
+For new boxes, prefer `init`. To migrate an existing manual install
+to the canonical layout, stop the service, run `init --force`, restart:
+
+```bash
+sudo systemctl stop glassmkr-crucible
+sudo glassmkr-crucible init --api-key <K> --force
+```
 
 ## Rebooting without noise
 
@@ -127,12 +169,18 @@ The marker is single-use and expires 10 minutes after it is written (override wi
 
 Per-rule grace windows are applied separately: bond-slave-down and CPU-temperature get 60 s, interface errors 120 s, clock-sync / NTP 300 s, others 0 s. Suppressed evaluations are recorded in alert history with status `suppressed_boot_grace` or `suppressed_planned_reboot` so you can audit exactly why a rule didn't fire during a given boot.
 
-## Systemd Service
+## Manual install
 
-The npm prefix differs across distros: Ubuntu's global npm puts binaries in
-`/usr/bin/`, while Debian's defaults to `/usr/local/bin/`. The systemd unit's
-`ExecStart` must point at wherever `glassmkr-crucible` actually landed on
-your host, so detect the path before writing the unit:
+The canonical install path is `glassmkr-crucible init` (see "Install"
+above). For ops engineers writing config-management modules, `init`
+gives you a stable interface that's covered by the test suite; prefer
+it over hand-rolling the equivalent.
+
+If you need or want to do this by hand, the npm prefix differs across
+distros: Ubuntu's global npm puts binaries in `/usr/bin/`, while
+Debian's defaults to `/usr/local/bin/`. The systemd unit's
+`ExecStart` must point at wherever `glassmkr-crucible` actually landed
+on your host, so detect the path before writing the unit:
 
 ```bash
 BIN_PATH=$(command -v glassmkr-crucible)

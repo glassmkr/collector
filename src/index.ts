@@ -12,6 +12,24 @@ if (cliArgs.mode === "version" || cliArgs.mode === "help") {
   console.log(cliOutput);
   process.exit(0);
 }
+if (cliArgs.mode === "init") {
+  const { runInit, defaultDeps } = await import("./init.js");
+  const flags = cliArgs.init;
+  if (!flags || !flags.apiKey) {
+    console.error("[init] missing required --api-key (use --api-key - to read from stdin). See 'glassmkr-crucible init --help'.");
+    process.exit(2);
+  }
+  const code = await runInit({
+    apiKey: flags.apiKey,
+    name: flags.name,
+    ingestUrl: flags.ingestUrl,
+    configPath: flags.configPath,
+    noStart: flags.noStart,
+    force: flags.force,
+    noVerify: flags.noVerify,
+  }, defaultDeps());
+  process.exit(code);
+}
 if (cliArgs.mode === "mark-reboot" || cliArgs.mode === "reboot") {
   const { writeRebootMarker, parseDuration, DEFAULT_TTL_MS } = await import("./lib/reboot-marker.js");
   const ttlMs = cliArgs.ttl ? parseDuration(cliArgs.ttl) : DEFAULT_TTL_MS;
