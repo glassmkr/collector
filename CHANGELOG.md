@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Pre-1.0 convention: minor bumps may include breaking changes; we call them
 out under `### Breaking` so downstream consumers can audit.
 
+## [0.9.0] - 2026-05-07
+
+Aligns Crucible with the Forge programmatic-API workstream. **No
+collector-side code changes required for this release** — the agent
+still reads its key as an opaque string and sends it as a Bearer
+token. The version bump exists to let operators correlate "I rotated
+on Forge to a `gmk_cru_live_*` key" with "I'm running Crucible
+0.9.0 or later".
+
+### Operator-facing change
+
+When you next rotate a server's collector key on Forge (via the
+dashboard or `POST /api/v1/servers/{id}/rotate-key`), Forge issues a
+key in the new format:
+
+  gmk_cru_live_<43-char-base62>_<4-char-checksum>     (49 chars total)
+
+instead of the old:
+
+  col_<32 hex>                                        (36 chars total)
+
+The new format includes a Stripe-style prefix for support legibility,
+a CRC32 checksum so Forge can reject malformed keys at the edge
+without a DB lookup, and HMAC+pepper storage on the Forge side
+(replacing bcrypt, which was overkill for 256-bit high-entropy keys).
+GitHub secret-scanning partner registration for the `gmk_cru_live_`
+prefix is queued.
+
+After rotating: update the agent's config file with the new value:
+
+  forge:
+    api_key: "gmk_cru_live_..."
+
+then `sudo systemctl restart glassmkr-collector`.
+
+### Breaking
+
+- **None for the agent itself.** Both old (`col_*`) and new
+  (`gmk_cru_live_*`) keys continue to authenticate against Forge.
+  Operators rotate at their own pace; Forge accepts both formats
+  during the migration window. There is no scheduled cutoff for
+  the legacy format in v0.9; that decision lands at v1.0 or earlier
+  if customer demand drives it.
+
+### Notes
+
+- 0.9.0 is the floor version Forge documents for the new `gmk_cru_*`
+  rotation flow. Earlier 0.8.x agents work fine; the version bump is
+  about narrative alignment rather than wire-format incompatibility.
+- The agent's auto-update path picks up 0.9.0 on next service restart
+  for any field agent on 0.8.x.
+- glassmkr-services-1 (currently 0.7.0) and glassmkr-gpu-1 (currently
+  0.6.6) will both auto-update to 0.9.0 on next restart.
+
 ## [0.8.1] - 2026-05-06
 
 Patch release closing P1 bugs Codex identified in 0.8.0. No new
