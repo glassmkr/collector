@@ -38,6 +38,10 @@ export interface ConntrackData {
 export interface SystemdData {
   failed_units: string[];
   failed_count: number;
+  /** Last 5 journal lines per failed unit, populated only when at
+   *  least one unit is failed. Keys match `failed_units`. Codex
+   *  experiment 2026-05-12. */
+  journal_excerpts?: Record<string, string[]>;
 }
 
 export interface NtpData {

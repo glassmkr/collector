@@ -50,7 +50,7 @@ describe("deriveSelSeverity", () => {
 });
 
 describe("parseSelTimestamp", () => {
-  it("formats a known date/time", () => {
+  it("formats a known date/time (4-digit year)", () => {
     expect(parseSelTimestamp("04/05/2026", "14:23:05")).toBe("2026-04-05T14:23:05Z");
   });
   it("pads single digit month/day", () => {
@@ -60,6 +60,22 @@ describe("parseSelTimestamp", () => {
     const out = parseSelTimestamp("", "");
     expect(typeof out).toBe("string");
     expect(out.length).toBeGreaterThan(10);
+  });
+  it("expands 2-digit year to 4-digit (Codex experiment 2026-05-12 finding: Supermicro X11/X12 BMCs emit YY)", () => {
+    // services-1 actually produced this shape via ipmitool sel elist.
+    expect(parseSelTimestamp("06/17/23", "09:05:27 UTC")).toBe("2023-06-17T09:05:27Z");
+  });
+  it("strips trailing ' UTC' from time (Supermicro X11/X12 shape)", () => {
+    expect(parseSelTimestamp("11/14/24", "16:16:02 UTC")).toBe("2024-11-14T16:16:02Z");
+    expect(parseSelTimestamp("11/14/24", "16:16:02 utc")).toBe("2024-11-14T16:16:02Z");
+  });
+  it("YY convention: 00-69 → 20YY, 70-99 → 19YY", () => {
+    expect(parseSelTimestamp("01/01/05", "00:00:00")).toBe("2005-01-01T00:00:00Z");
+    expect(parseSelTimestamp("01/01/95", "00:00:00")).toBe("1995-01-01T00:00:00Z");
+  });
+  it("emits a strict ISO-8601 string that Date.parse can round-trip", () => {
+    const iso = parseSelTimestamp("11/14/24", "16:16:02 UTC");
+    expect(Number.isFinite(Date.parse(iso))).toBe(true);
   });
 });
 
