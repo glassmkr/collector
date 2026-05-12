@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Pre-1.0 convention: minor bumps may include breaking changes; we call them
 out under `### Breaking` so downstream consumers can audit.
 
+## [0.9.2] - 2026-05-13
+
+### Fixed
+
+- `parseSelTimestamp` now emits strict ISO-8601 strings for every BMC date format observed in production. Pre-fix the function produced shapes like `23-06-17T09:05:27 UTCZ` (2-digit year not expanded, trailing ` UTC` from the time field passed through) which Forge's `ipmi_sel_critical` rule could not parse for its rolling time-window check. Two-digit years now expand using the standard `00-69 = 20YY` / `70-99 = 19YY` convention; any trailing ` UTC` on the time component is stripped before composition. Forge-side fail-open path remains as belt-and-braces. Closes the experiment finding paired with [glassmkr/glassmkr#60](https://github.com/glassmkr/glassmkr/pull/60).
+
+### Added
+
+- `collect/systemd.ts` now collects the last 5 journal lines per failed unit via `journalctl -u <unit> --no-pager -n 5 -o cat` and emits them on the snapshot as `systemd.journal_excerpts[unit]`. Cost is zero on the happy path (no failed units → no journalctl calls). Closes the experiment finding paired with [glassmkr/glassmkr#60](https://github.com/glassmkr/glassmkr/pull/60). Older Forge versions ignore the new field; current Forge displays the excerpt directly in the alert evidence so the customer doesn't have to SSH.
+
 ## [0.9.1] - 2026-05-08
 
 ### Added

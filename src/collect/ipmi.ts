@@ -203,11 +203,25 @@ async function collectSelEvents(): Promise<SelEvent[]> {
 
 export function parseSelTimestamp(date: string, time: string): string {
   if (!date || !time) return new Date().toISOString();
-  // Format: "04/05/2026" and "14:23:05"
+  // ipmitool sel elist date formats observed in the wild:
+  //   "04/05/2026"  (Dell iDRAC, 4-digit year)
+  //   "06/17/23"    (Supermicro X11/X12 BMCs, 2-digit year)
+  // Time formats observed:
+  //   "14:23:05"
+  //   "09:05:27 UTC"  (Supermicro X11/X12 BMCs append a UTC suffix)
+  // Pre-fix the function emitted shapes like "23-06-17T09:05:27 UTCZ"
+  // which Forge's evaluator couldn't parse for the time-window check.
+  // Normalise to strict ISO-8601: 4-digit year, no trailing UTC.
+  // glassmkr#24 / Codex experiment 2026-05-12.
   const parts = date.split("/");
   if (parts.length !== 3) return new Date().toISOString();
-  const [month, day, year] = parts;
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${time}Z`;
+  let [month, day, year] = parts;
+  if (year.length === 2) {
+    // ipmitool convention: 70-99 = 19xx, 00-69 = 20xx
+    year = Number(year) >= 70 ? `19${year}` : `20${year}`;
+  }
+  const cleanTime = time.replace(/\s*UTC\s*$/i, "").trim();
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${cleanTime}Z`;
 }
 
 export function classifySensor(sensor: string): string {
