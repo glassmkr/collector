@@ -12,6 +12,11 @@ if (cliArgs.mode === "version" || cliArgs.mode === "help") {
   console.log(cliOutput);
   process.exit(0);
 }
+if (cliArgs.mode === "doctor-ipmi") {
+  const { runDoctorIpmi } = await import("./doctor.js");
+  console.log(await runDoctorIpmi());
+  process.exit(0);
+}
 if (cliArgs.mode === "init") {
   const { runInit, defaultDeps } = await import("./init.js");
   const flags = cliArgs.init;
@@ -120,7 +125,9 @@ if (config.forge.tls_pin) {
   console.log("[collector] TLS pinning enabled for Forge");
 }
 
-const emptyIpmi: IpmiInfo = { available: false, sensors: [], ecc_errors: { correctable: 0, uncorrectable: 0 }, sel_entries_count: 0, sel_events_recent: [], fans: [] };
+// Returned when IPMI collection is disabled by config. `null` ecc/SEL
+// distinguishes "we didn't probe" from "BMC said zero". glassmkr#29.
+const emptyIpmi: IpmiInfo = { available: false, sensors: [], ecc_errors: null, sel_entries_count: null, sel_events_recent: [], fans: [] };
 
 // DMI is read once at startup; sys_vendor / product_name don't change for
 // the lifetime of the process.
@@ -134,24 +141,40 @@ if (config.collection.dmi) {
   }
 }
 
-// IPMI capability detection is also a one-shot at startup. When unavailable,
-// collectIpmi short-circuits without spawning ipmitool, saving four ENOENT
-// execs per cycle on no-BMC hosts (Pi, laptops, VMs without IPMI).
+// IPMI capability detection runs at startup AND is periodically re-run so
+// that a customer who installs ipmitool after the agent started doesn't
+// have to restart Crucible. Pre-0.9.4 the capability was one-shot at boot,
+// which left services-1 (and any other host with the same install pattern)
+// stuck reporting "Not detected" forever even after the operator fixed the
+// underlying provisioning gap. cross-vendor IPMI audit Phase 1 B.2b.
 //
-// User override: if config.collection.ipmi is true and detection says
-// unavailable, we still log the warning, but pass the negative capability
-// through. collectIpmi's short-circuit will skip exec attempts. Operators
-// who hit a false-negative detection can flip collection.ipmi to false to
-// silence the snapshot field, or unset capability passing entirely (not
-// exposed via config — would need a code change).
+// Re-detection cadence: every IPMI_RECHECK_CYCLES cycles. At the default
+// 5-min collection interval that's one re-check per hour. Transitions
+// false→true log info; true→false log warn.
+const IPMI_RECHECK_CYCLES = 12;
 let ipmiCapability: IpmiCapability | undefined;
-if (config.collection.ipmi) {
+let ipmiCheckCounter = 0;
+
+async function refreshIpmiCapability(): Promise<void> {
+  if (!config.collection.ipmi) return;
   try {
-    ipmiCapability = await detectIpmiCapability();
-    console.log(`[collector] ${formatCapabilityLine(ipmiCapability)}`);
+    const next = await detectIpmiCapability();
+    const prevAvailable = ipmiCapability?.available;
+    ipmiCapability = next;
+    if (prevAvailable === undefined) {
+      console.log(`[collector] ${formatCapabilityLine(next)}`);
+    } else if (prevAvailable !== next.available) {
+      const direction = next.available ? "available" : "unavailable";
+      const level = next.available ? "log" : "warn";
+      console[level](`[ipmi] capability flipped: now ${direction} (${formatCapabilityLine(next)})`);
+    }
   } catch (err) {
     console.error("[ipmi] Capability detection error:", err);
   }
+}
+
+if (config.collection.ipmi) {
+  await refreshIpmiCapability();
 } else {
   console.log("[collector] IPMI: disabled by config");
 }
@@ -170,6 +193,15 @@ let lastSecurityResult: SecurityData | undefined;
 async function collect() {
   const startTime = Date.now();
   console.log(`[collector] Collecting...`);
+
+  // Re-check IPMI capability periodically so post-install fixes (ipmitool
+  // installed after agent start, kernel modules loaded, permission grants)
+  // pick up without a restart. First cycle (counter=0) does NOT re-check
+  // because startup already did.
+  if (config.collection.ipmi && ipmiCheckCounter > 0 && ipmiCheckCounter % IPMI_RECHECK_CYCLES === 0) {
+    await refreshIpmiCapability();
+  }
+  ipmiCheckCounter++;
 
   const [system, cpu, memory, disks, smart, network, raid, ipmi, osAlerts] = await Promise.all([
     collectSystem(),

@@ -91,8 +91,13 @@ function formatPrometheus(snap: Snapshot): string {
         lines.push(`glassmkr_ipmi_sensor{sensor="${sensor.name}",unit="${sensor.unit}"} ${sensor.value}`);
       }
     }
-    lines.push(`glassmkr_ipmi_ecc_correctable ${snap.ipmi.ecc_errors.correctable}`);
-    lines.push(`glassmkr_ipmi_ecc_uncorrectable ${snap.ipmi.ecc_errors.uncorrectable}`);
+    // ecc_errors is null when IPMI couldn't be probed at all (no
+    // ipmitool / no /dev/ipmi0). Omit the Prometheus lines in that case
+    // so scrapers don't record "0" as if it were a real measurement.
+    if (snap.ipmi.ecc_errors) {
+      lines.push(`glassmkr_ipmi_ecc_correctable ${snap.ipmi.ecc_errors.correctable}`);
+      lines.push(`glassmkr_ipmi_ecc_uncorrectable ${snap.ipmi.ecc_errors.uncorrectable}`);
+    }
 
     // Fans
     if (snap.ipmi.fans) {
