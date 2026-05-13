@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Pre-1.0 convention: minor bumps may include breaking changes; we call them
 out under `### Breaking` so downstream consumers can audit.
 
+## [0.9.3] - 2026-05-13
+
+### Fixed
+
+- Customer-visible state staleness after config changes. Pre-0.9.3 the entire `security` block on the snapshot was cached for 1 hour (every 12th collection cycle at the default 300s interval), which meant after a customer fixed a `no_firewall` / `ssh_root_password` / `unattended_upgrades_disabled` alert, the Forge dashboard kept showing the old state for up to 60 minutes. The cache existed because `apt list --upgradable` and `dnf updateinfo list security` are genuinely slow, but the cache was over-eager: every other sub-check (firewall `ufw status`, `sshd -T`, `/sys/devices/system/cpu/vulnerabilities/`, `systemctl is-active`) is fast and should run every cycle. Now: only the `pending_updates` sub-check is cached (1h TTL inside `collectSecurity()`); every other sub-check runs on every snapshot. Customer config fixes show up on the next 5-minute ingest cycle. Surfaced by `CLEANUP_REPORT_2026-05-13.md`.
+
 ## [0.9.2] - 2026-05-13
 
 ### Fixed
