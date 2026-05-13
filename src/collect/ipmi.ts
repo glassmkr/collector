@@ -15,11 +15,14 @@ import { filterRedundantCpuDtsSensors } from "../lib/ipmi-sensor-filter.js";
  */
 export async function collectIpmi(vendor: Vendor = "generic", capability?: IpmiCapability): Promise<IpmiInfo> {
   if (capability && !capability.available) {
+    // No probe possible — distinguish "we couldn't ask" from "BMC said
+    // zero". Forge schema accepts both shapes; dashboard renders null
+    // as "no signal" not "0 errors observed". glassmkr#29.
     return {
       available: false,
       sensors: [],
-      ecc_errors: { correctable: 0, uncorrectable: 0 },
-      sel_entries_count: 0,
+      ecc_errors: null,
+      sel_entries_count: null,
       sel_events_recent: [],
       fans: [],
       detection: capability,
@@ -30,8 +33,10 @@ export async function collectIpmi(vendor: Vendor = "generic", capability?: IpmiC
   if (!sensorRaw) {
     return {
       available: false, sensors: [],
-      ecc_errors: { correctable: 0, uncorrectable: 0 },
-      sel_entries_count: 0, sel_events_recent: [], fans: [],
+      ecc_errors: null,
+      sel_entries_count: null,
+      sel_events_recent: [],
+      fans: [],
       detection: capability,
     };
   }

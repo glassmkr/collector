@@ -2,7 +2,7 @@
 // or collector initialization so --version and --help exit cleanly even when
 // the config file is missing or the host lacks the tools the collectors need.
 
-export type CliMode = "version" | "help" | "run" | "mark-reboot" | "reboot" | "init";
+export type CliMode = "version" | "help" | "run" | "mark-reboot" | "reboot" | "init" | "doctor-ipmi";
 
 export interface CliArgs {
   mode: CliMode;
@@ -49,6 +49,22 @@ export function parseCliArgs(argv: string[], version: string): { result: CliArgs
       if (a === "--no-verify") { flags.noVerify = true; continue; }
     }
     return { result: { mode: "init", configPath: "", init: flags }, output: null };
+  }
+
+  // Subcommand dispatch: `doctor <topic>` — read-only diagnostic.
+  // Currently only `doctor ipmi` is implemented; placeholder for future
+  // topics (security, network) without changing the CLI shape.
+  if (argv[0] === "doctor") {
+    if (argv[1] === "--help" || argv[1] === "-h") {
+      return { result: { mode: "help", configPath: "" }, output: doctorHelp(version) };
+    }
+    if (argv[1] === "ipmi") {
+      return { result: { mode: "doctor-ipmi", configPath: "" }, output: null };
+    }
+    return {
+      result: { mode: "help", configPath: "" },
+      output: `glassmkr-crucible doctor: missing or unknown topic '${argv[1] ?? ""}'. See 'glassmkr-crucible doctor --help'.`,
+    };
   }
 
   // Subcommand dispatch: `mark-reboot` and `reboot` take their own flags
@@ -110,6 +126,7 @@ export function helpText(version: string): string {
     "  glassmkr-crucible init        --api-key <K> [--name <N>] [--ingest-url <U>] [--no-start] [--force]",
     "  glassmkr-crucible mark-reboot [--reason TEXT] [--ttl DURATION]",
     "  glassmkr-crucible reboot      [--reason TEXT] [--ttl DURATION]",
+    "  glassmkr-crucible doctor ipmi",
     "",
     "Options:",
     "  -v, --version    Print version and exit",
@@ -124,6 +141,9 @@ export function helpText(version: string): string {
     "                   does not fire `server_rebooted_unexpectedly`.",
     "                   You run the reboot yourself afterwards.",
     "  reboot           Write the marker, then invoke `systemctl reboot`.",
+    "  doctor ipmi      Read-only IPMI capability check with actionable",
+    "                   fix guidance for each failure mode (e.g. ipmitool",
+    "                   not installed, kernel modules missing, BMC busy).",
     "",
     "Without options, starts the collector daemon using the config file.",
     "Docs: https://github.com/glassmkr/crucible",
@@ -159,6 +179,20 @@ export function initHelp(version: string): string {
     "  5. Unless --no-start, runs systemctl enable --now glassmkr-crucible.",
     "",
     "Requires root for the filesystem and systemd writes (sudo).",
+    `v${version}`,
+  ].join("\n");
+}
+
+function doctorHelp(version: string): string {
+  return [
+    `glassmkr-crucible doctor - read-only diagnostic`,
+    "",
+    "Usage:",
+    "  glassmkr-crucible doctor ipmi    Diagnose IPMI capability + show fixes",
+    "",
+    "Each topic runs the same probes the agent uses internally and prints",
+    "structured output plus actionable per-failure-mode guidance. The",
+    "command never modifies system state.",
     `v${version}`,
   ].join("\n");
 }

@@ -10,7 +10,7 @@
 
 import type { Snapshot, AlertResult } from "../lib/types.js";
 import type { Config } from "../config.js";
-import { isPsuSensor } from "../lib/vendor-sensors.js";
+import { isPsuSensor, classifyPsuSensorBitmask } from "../lib/vendor-sensors.js";
 
 /**
  * True iff a sensor reading is a temperature reading. Mirrors the
@@ -306,24 +306,38 @@ export const allRules: AlertRule[] = [
     if (!snap.ipmi.sensors) return [];
     const psus = snap.ipmi.sensors.filter(s => isPsuSensor(s.name, vendor));
     if (psus.length < 2) return [];
-    // ipmitool reports discrete states two ways:
-    //   - text values like "Failure detected", "Absent", "OK"
-    //   - short codes in the status column: "ok", "ns" (not specified /
-    //     no reading), "nc" (non-critical), "cr" (critical), "nr"
-    //     (non-recoverable). cr and nr indicate the PSU is in a fault
-    //     state; the 0.8.0 implementation only matched "fail"/"absent"
-    //     text and missed every BMC that uses the short codes.
+    // ipmitool reports discrete states three ways and the 0.8.0/0.9.x
+    // implementation only handled the first two:
+    //   1. text values like "Failure detected" / "Absent" in the
+    //      value or status column.
+    //   2. short status codes "cr" (critical) / "nr" (non-recoverable)
+    //      added in the 0.8.0 P1 follow-up.
+    //   3. hex bitmask in the Reading column for IPMI sensor type 0x08
+    //      (Power Supply). Crucible was missing this path entirely, so
+    //      BMCs that report discrete states via the spec-defined hex
+    //      bits (Supermicro, Gigabyte, ASRockRack on the validation
+    //      fleet) produced no per-PSU alerts even when bit 1 (Failure
+    //      detected) or bit 3 (AC lost) was asserted. glassmkr#29.
+    //
+    // The bitmask classifier in vendor-sensors.ts uses the IPMI 2.0
+    // spec for sensor type 0x08 and prefers under-report over
+    // over-report on ambiguous Reading=0x0 + mask without presence bit.
     const failed = psus.filter(s => {
       const st = String(s.status).toLowerCase().trim();
       const v = String(s.value).toLowerCase();
       if (st === "cr" || st === "nr") return true;
-      return st.includes("fail") || st.includes("absent") || v.includes("fail") || v.includes("absent");
+      if (st.includes("fail") || st.includes("absent")) return true;
+      if (v.includes("fail") || v.includes("absent")) return true;
+      // Hex bitmask path. status carries the BMC's assertion mask for
+      // discrete sensors; value is the current Reading.
+      const bit = classifyPsuSensorBitmask(String(s.value), String(s.status), vendor);
+      return bit === "failed" || bit === "ac_lost" || bit === "absent";
     });
     if (failed.length === 0) return [];
     return [{ type: "psu_redundancy_loss", severity: "critical",
       title: "PSU redundancy lost",
       message: `${failed.length} PSU(s) failed/absent: ${failed.map(p => p.name).join(", ")}.`,
-      evidence: { failed: failed.map(p => ({ name: p.name, status: p.status })), source: "per_psu_sensors", vendor },
+      evidence: { failed: failed.map(p => ({ name: p.name, status: p.status, value: p.value })), source: "per_psu_sensors", vendor },
       recommendation: "Replace failed PSU. Check power connections." }];
   }},
   // 19. IPMI SEL critical events

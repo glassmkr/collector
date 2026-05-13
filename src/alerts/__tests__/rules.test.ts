@@ -474,3 +474,137 @@ describe("psu_redundancy_loss cr/nr discrete codes (regression for 0.8.0 P1)", (
     expect(psuRule.evaluate(snap, baseThresholds)).toEqual([]);
   });
 });
+
+describe("psu_redundancy_loss bitmask path (regression for glassmkr#29)", () => {
+  // Per IPMI 2.0 spec for sensor type 0x08 (Power Supply):
+  //   bit 1 (0x02): Power Supply Failure detected
+  //   bit 3 (0x08): Power Supply input lost (AC/DC)
+  //
+  // The pre-fix rule only matched text "fail"/"absent" and the short
+  // status codes "cr"/"nr", so every BMC that reports discrete states
+  // as hex bitmask values in the Reading column was a silent
+  // false-negative.
+
+  it("fires when bit 1 (Failure detected) is asserted in Reading", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "generic", raw_vendor: "GIGABYTE", product_name: "MC12-LE0", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PS1_Status", value: "0x02", unit: "discrete", status: "0x0180" },
+        { name: "PS2_Status", value: "0x01", unit: "discrete", status: "0x0180" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = psuRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect(out[0].evidence.source).toBe("per_psu_sensors");
+    expect(out[0].evidence.failed).toEqual([
+      { name: "PS1_Status", status: "0x0180", value: "0x02" },
+    ]);
+  });
+
+  it("fires when bit 3 (AC lost) is asserted", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "supermicro", raw_vendor: "Supermicro", product_name: "X11SSL", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PSU1 Status", value: "0x08", unit: "discrete", status: "0x0100" },
+        { name: "PSU2 Status", value: "0x01", unit: "discrete", status: "0x0100" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = psuRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect((out[0].evidence.failed as Array<{ value: string }>)[0].value).toBe("0x08");
+  });
+
+  it("does NOT fire on the healthy/ambiguous Reading=0x0 + mask without presence bit (under-report safe default)", () => {
+    // mz62hd / x570d4u / x12qch shape: mask doesn't include bit 0, so a
+    // Reading of 0x0 is ambiguous between "PSU absent" and "PSU healthy
+    // with no events asserted". Crucible prefers under-report.
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "generic", raw_vendor: "GIGABYTE", product_name: "H262-Z63", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PS1_Status", value: "0x00", unit: "discrete", status: "0x0180" },
+        { name: "PS2_Status", value: "0x00", unit: "discrete", status: "0x0180" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(psuRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+
+  it("DOES fire when mask supports presence (bit 0) but Reading lacks it (PSU absent)", () => {
+    // If a BMC says it can report bit 0 (mask & 0x01) and the Reading
+    // is 0x0, the PSU is genuinely absent. Catch it.
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "supermicro", raw_vendor: "Supermicro", product_name: "X11", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PSU1 Status", value: "0x00", unit: "discrete", status: "0x0181" },
+        { name: "PSU2 Status", value: "0x01", unit: "discrete", status: "0x0181" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    const out = psuRule.evaluate(snap, baseThresholds);
+    expect(out).toHaveLength(1);
+    expect((out[0].evidence.failed as Array<{ name: string }>)[0].name).toBe("PSU1 Status");
+  });
+
+  it("does NOT fire on healthy 0x01 (Presence detected, no failure bits) on either PSU", () => {
+    // Standard healthy shape on Supermicro h12sst, Gigabyte mc12le.
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "supermicro", raw_vendor: "Supermicro", product_name: "H12SST", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PS1 Status", value: "0x01", unit: "discrete", status: "0x0100" },
+        { name: "PS2 Status", value: "0x01", unit: "discrete", status: "0x0100" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(psuRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+
+  it("does NOT fire on bit 7 (Inactive) alone — backup PSU in standby is not a failure", () => {
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "supermicro", raw_vendor: "Supermicro", product_name: "X11", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PSU1 Status", value: "0x01", unit: "discrete", status: "0x0180" },
+        { name: "PSU2 Status", value: "0x80", unit: "discrete", status: "0x0180" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(psuRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+
+  it("predictive failure (bit 2) does not currently fire critical; tracked separately if/when added", () => {
+    // Path A only fires on hard-failure states (failed/ac_lost/absent).
+    // Predictive deserves a warning-tier path; not implemented in this
+    // PR. This test pins the current behaviour.
+    const snap = emptySnap();
+    snap.dmi = { available: true, vendor: "supermicro", raw_vendor: "Supermicro", product_name: "X11", bios_version: null, bios_date: null, is_virtual: false };
+    snap.ipmi = {
+      available: true,
+      sensors: [
+        { name: "PSU1 Status", value: "0x04", unit: "discrete", status: "0x0180" },
+        { name: "PSU2 Status", value: "0x01", unit: "discrete", status: "0x0180" },
+      ],
+      ecc_errors: { correctable: 0, uncorrectable: 0 },
+      sel_entries_count: 0, sel_events_recent: [], fans: [],
+    };
+    expect(psuRule.evaluate(snap, baseThresholds)).toEqual([]);
+  });
+});

@@ -242,7 +242,16 @@ export interface IpmiInfo {
     status: string;
     upper_critical?: number;
   }>;
-  ecc_errors: { correctable: number; uncorrectable: number };
+  /**
+   * Named-sensor ECC counters from `ipmitool sensor`. `null` when the
+   * agent could not probe IPMI at all (no ipmitool, no /dev/ipmi0, etc.).
+   * Distinguishes "we have a real zero reading from the BMC" from "we
+   * couldn't ask". Before 0.9.4 this was always `{ correctable: 0,
+   * uncorrectable: 0 }` even when IPMI was unavailable, which made the
+   * Forge dashboard render "ECC: 0 / 0" on boxes that aren't being
+   * probed. glassmkr#29 / cross-vendor IPMI audit Phase 1.
+   */
+  ecc_errors: { correctable: number; uncorrectable: number } | null;
   /**
    * ECC error counts derived from SEL events instead of named sensors.
    * Dell iDRAC reports memory ECC only via SEL on the Memory entity, so
@@ -261,7 +270,12 @@ export interface IpmiInfo {
    * exists; the rule then falls back to per-PSU status checks.
    */
   psu_redundancy_state?: PsuRedundancyState;
-  sel_entries_count: number;
+  /**
+   * `null` when ECC/sensor data is unavailable for the same reason as
+   * `ecc_errors`. Distinguishes "BMC reports 0 SEL events" from "we
+   * couldn't ask the BMC".
+   */
+  sel_entries_count: number | null;
   sel_events_recent: SelEvent[];
   fans: FanStatus[];
 }
