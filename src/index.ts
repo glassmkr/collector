@@ -156,9 +156,16 @@ if (config.collection.ipmi) {
   console.log("[collector] IPMI: disabled by config");
 }
 
-// Security checks run once per hour (every 12th cycle at 5-min intervals)
-let securityCycleCount = 0;
-let cachedSecurity: SecurityData | undefined;
+// Security checks run every cycle. The only expensive sub-check
+// (pending_updates against apt/dnf metadata) is internally cached
+// with a 1h TTL inside collectSecurity(); every other sub-check
+// (firewall, sshd config, kernel_vulns, kernel_reboot, auto_updates)
+// is fast and re-runs every cycle so that a customer config change
+// is reflected in the next snapshot rather than the next hourly
+// window. Pre-fix this whole block was cached for 12 cycles which
+// made legitimate fixes look broken from the customer's view for up
+// to an hour. Surfaced by CLEANUP_REPORT_2026-05-13.md.
+let lastSecurityResult: SecurityData | undefined;
 
 async function collect() {
   const startTime = Date.now();
@@ -176,18 +183,19 @@ async function collect() {
     collectOsAlerts(),
   ]);
 
-  // Security checks: run once per hour, reuse cached data between runs
-  securityCycleCount++;
-  if (securityCycleCount >= 12 || !cachedSecurity) {
-    securityCycleCount = 0;
-    try { cachedSecurity = await collectSecurity(); } catch (err) { console.error("[security] Collection error:", err); }
+  try {
+    lastSecurityResult = await collectSecurity();
+  } catch (err) {
+    console.error("[security] Collection error:", err);
+    // Leave `lastSecurityResult` at its previous value so an
+    // intermittent failure doesn't blank out the security block.
   }
 
   const snapshot: Snapshot = {
     collector_version: PKG_VERSION,
     timestamp: new Date().toISOString(),
     system, cpu, memory, disks, smart, network, raid, ipmi, os_alerts: osAlerts,
-    security: cachedSecurity,
+    security: lastSecurityResult,
     dmi: cachedDmi,
   };
 

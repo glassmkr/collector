@@ -46,17 +46,53 @@ export interface SecurityData {
   auto_updates: AutoUpdateStatus;
 }
 
+// Cache TTL for the one expensive security check (pending_updates).
+// `apt list --upgradable` and `dnf updateinfo list security` both hit
+// package metadata and can take seconds; running every collection
+// cycle (5 min) is wasteful. Every other check in collectSecurity is
+// fast (sshd -T, /sys file reads, systemctl is-active) and should run
+// every cycle so a customer's config change (ufw enable, sshd_config
+// edit, dnf-automatic install) takes effect on the next snapshot
+// rather than on the next hourly window. Pre-fix the entire
+// SecurityData was cached for an hour; that masked legitimate
+// customer fixes for up to 60 minutes after they applied them.
+// Surfaced by `CLEANUP_REPORT_2026-05-13.md`.
+const PENDING_UPDATES_TTL_MS = 60 * 60 * 1000;
+
+interface PendingUpdatesCache {
+  result: SecurityUpdateStatus | null;
+  at: number;
+}
+
+let pendingUpdatesCache: PendingUpdatesCache | null = null;
+
 export async function collectSecurity(): Promise<SecurityData> {
+  const pendingUpdatesPromise: Promise<SecurityUpdateStatus | null> =
+    pendingUpdatesCache !== null && (Date.now() - pendingUpdatesCache.at) < PENDING_UPDATES_TTL_MS
+      ? Promise.resolve(pendingUpdatesCache.result)
+      : checkSecurityUpdates().then((result) => {
+          pendingUpdatesCache = { result, at: Date.now() };
+          return result;
+        });
+
   const [ssh, firewall, pendingUpdates, kernelVulns, kernelReboot, autoUpdates] = await Promise.all([
     checkSshConfig(),
     checkFirewall(),
-    checkSecurityUpdates(),
+    pendingUpdatesPromise,
     checkKernelVulnerabilities(),
     checkKernelReboot(),
     checkAutoUpdates(),
   ]);
 
   return { ssh, firewall, pending_updates: pendingUpdates, kernel_vulns: kernelVulns, kernel_reboot: kernelReboot, auto_updates: autoUpdates };
+}
+
+/**
+ * Test-only: reset the pending_updates cache so tests can exercise
+ * the cold-cache + warm-cache paths deterministically.
+ */
+export function __resetSecurityCacheForTests(): void {
+  pendingUpdatesCache = null;
 }
 
 // === SSH ===
