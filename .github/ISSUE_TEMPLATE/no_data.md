@@ -1,15 +1,15 @@
 ---
-name: No Data in Forge
-about: Crucible is running but Forge shows no data
+name: No Data in Dashboard
+about: Crucible is running but Dashboard shows no data
 ---
 
 **Crucible version:**
 **OS and version:**
 **How long since install:**
 
-**Can you reach Forge?**
+**Can you reach Dashboard?**
 ```
-curl -s -o /dev/null -w "%{http_code}" https://forge.glassmkr.com/api/health
+curl -s -o /dev/null -w "%{http_code}" https://app.glassmkr.com/api/health
 ```
 
 **Service status:**

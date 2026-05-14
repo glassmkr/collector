@@ -83,14 +83,14 @@ describe("isValidApiKey", () => {
 
 describe("buildCollectorYaml", () => {
   it("emits a parseable YAML with name, url, key", () => {
-    const y = buildCollectorYaml("web-01", "https://forge.glassmkr.com/api/v1/ingest", VALID_NEW_KEY);
+    const y = buildCollectorYaml("web-01", "https://app.glassmkr.com/api/v1/ingest", VALID_NEW_KEY);
     expect(y).toContain('server_name: "web-01"');
-    expect(y).toContain('url: "https://forge.glassmkr.com"');
+    expect(y).toContain('url: "https://app.glassmkr.com"');
     expect(y).toContain(`api_key: "${VALID_NEW_KEY}"`);
   });
   it("strips /api/v1/ingest from the URL when present", () => {
-    const y = buildCollectorYaml("h", "https://forge.example.com/api/v1/ingest", VALID_NEW_KEY);
-    expect(y).toContain('url: "https://forge.example.com"');
+    const y = buildCollectorYaml("h", "https://dashboard.example.com/api/v1/ingest", VALID_NEW_KEY);
+    expect(y).toContain('url: "https://dashboard.example.com"');
     expect(y).not.toContain("/api/v1/ingest");
   });
   it("escapes embedded double quotes in name", () => {
@@ -204,8 +204,8 @@ describe("runInit", () => {
 
   it("--ingest-url override is reflected in collector.yaml", async () => {
     const { deps, fs } = makeDeps();
-    await runInit({ apiKey: VALID_NEW_KEY, ingestUrl: "https://forge.example.com/api/v1/ingest", configPath, noVerify: true }, deps);
-    expect(fs.files.get(configPath)?.data).toContain('url: "https://forge.example.com"');
+    await runInit({ apiKey: VALID_NEW_KEY, ingestUrl: "https://dashboard.example.com/api/v1/ingest", configPath, noVerify: true }, deps);
+    expect(fs.files.get(configPath)?.data).toContain('url: "https://dashboard.example.com"');
   });
 
   it("systemctl enable failure surfaces as exit code 9", async () => {

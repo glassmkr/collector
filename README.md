@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/@glassmkr/crucible.svg)](https://www.npmjs.com/package/@glassmkr/crucible)
 
 <!-- Canonical rule count: see RULES_COUNT.md in the Glassmkr monorepo. -->
-Lightweight bare metal server monitoring agent. Collects hardware and OS health every 5 minutes and pushes snapshots to a [Forge](https://forge.glassmkr.com) dashboard, which evaluates 38 alert rules and sends notifications.
+Lightweight bare metal server monitoring agent. Collects hardware and OS health every 5 minutes and pushes snapshots to a [Dashboard](https://app.glassmkr.com) dashboard, which evaluates 38 alert rules and sends notifications.
 
 Open source. MIT licensed. Built by [Glassmkr](https://glassmkr.com). See also [Bench](https://github.com/glassmkr/bench), the MCP server collection.
 
@@ -14,7 +14,7 @@ Open source. MIT licensed. Built by [Glassmkr](https://glassmkr.com). See also [
 
 ## Screenshots
 
-![Forge alerts with fix commands](https://glassmkr.com/screenshots/alerts.png)
+![Dashboard alerts with fix commands](https://glassmkr.com/screenshots/alerts.png)
 *Alerts grouped by server, with AI-generated fix commands for each rule.*
 
 ![Storage, SMART health, and network bonds](https://glassmkr.com/screenshots/hardware.png)
@@ -31,7 +31,7 @@ agent, and runs `glassmkr-crucible init` to validate your key, write
 service.
 
 ```bash
-curl -sf https://forge.glassmkr.com/install | bash -s -- --api-key gmk_cru_live_<your-key>
+curl -sf https://app.glassmkr.com/install | bash -s -- --api-key gmk_cru_live_<your-key>
 ```
 
 Or run the steps yourself:
@@ -52,16 +52,16 @@ Run `glassmkr-crucible init --help` for the full flag list.
 # Create config directory
 sudo mkdir -p /etc/glassmkr
 
-# Create config (replace with your Forge credentials)
+# Create config (replace with your Dashboard credentials)
 sudo tee /etc/glassmkr/collector.yaml << 'EOF'
 server_name: "web-01"
 collection:
   interval_seconds: 300
   ipmi: true
   smart: true
-forge:
+dashboard:
   enabled: true
-  url: "https://forge.glassmkr.com"
+  url: "https://app.glassmkr.com"
   api_key: "col_YOUR_KEY_HERE"
 EOF
 
@@ -77,7 +77,7 @@ Images are published to [ghcr.io/glassmkr/crucible](https://github.com/glassmkr/
 
 ## Quick Start
 
-1. Create an API key in the Forge dashboard (Servers → Add server).
+1. Create an API key in the Dashboard dashboard (Servers → Add server).
 2. Run `init`:
 
    ```bash
@@ -90,7 +90,7 @@ Images are published to [ghcr.io/glassmkr/crucible](https://github.com/glassmkr/
    you want to inspect the unit before enabling it. Pass `--api-key -`
    to read the key from stdin (handy for password-manager pipes).
 
-   Snapshots appear in the Forge dashboard within seconds of the first
+   Snapshots appear in the Dashboard dashboard within seconds of the first
    push.
 
 If you can't or won't run `init` (config-management is doing it for
@@ -123,9 +123,9 @@ collection:
   interval_seconds: 300
   ipmi: true
   smart: true
-forge:
+dashboard:
   enabled: true
-  url: "https://forge.glassmkr.com"
+  url: "https://app.glassmkr.com"
   api_key: "gmk_cru_live_<...>_<4>"
 ```
 
@@ -163,7 +163,7 @@ sudo glassmkr-crucible mark-reboot --reason "kernel update"
 sudo reboot
 ```
 
-Both write a short-lived marker to `/var/lib/crucible/reboot-expected`. The agent reads it once on startup, sets `expected_reboot: true` on the first post-boot snapshot, and deletes the file. Forge reads that flag and suppresses the `server_rebooted_unexpectedly` alert for that boot only.
+Both write a short-lived marker to `/var/lib/crucible/reboot-expected`. The agent reads it once on startup, sets `expected_reboot: true` on the first post-boot snapshot, and deletes the file. Dashboard reads that flag and suppresses the `server_rebooted_unexpectedly` alert for that boot only.
 
 The marker is single-use and expires 10 minutes after it is written (override with `--ttl 5m` / `--ttl 1h`), so a forgotten marker cannot silence a genuine crash reboot next week. If systemd fails to reboot the host, the marker simply expires on its own.
 
@@ -216,7 +216,7 @@ sudo systemctl status glassmkr-crucible
 
 If you ever upgrade `@glassmkr/crucible` and the binary moves (rare, but
 possible on a distro change), re-run the `command -v` step and update the
-unit file. The bootstrap script at `https://forge.glassmkr.com/install` does
+unit file. The bootstrap script at `https://app.glassmkr.com/install` does
 this detection automatically; the manual flow above is just the equivalent.
 
 ## What It Collects
@@ -239,7 +239,7 @@ this detection automatically; the manual flow above is just the equivalent.
 | File descriptors | System-wide allocation |
 
 <!-- Canonical rule count: see RULES_COUNT.md in the Glassmkr monorepo. -->
-Forge evaluates 38 alert rules server-side across OS, Storage, Network, Hardware, ZFS, Security, and Service Health, with priorities P1 Urgent through P4 Low. Full list: [forge.glassmkr.com/docs/alerts](https://forge.glassmkr.com/docs/alerts).
+Dashboard evaluates 38 alert rules server-side across OS, Storage, Network, Hardware, ZFS, Security, and Service Health, with priorities P1 Urgent through P4 Low. Full list: [app.glassmkr.com/docs/alerts](https://app.glassmkr.com/docs/alerts).
 
 ## Requirements
 
@@ -250,11 +250,11 @@ Forge evaluates 38 alert rules server-side across OS, Storage, Network, Hardware
 
 ## Documentation
 
-- [Getting Started](https://forge.glassmkr.com/docs/getting-started)
-- [Configuration Reference](https://forge.glassmkr.com/docs/configuration)
-- [Alert Rules (38)](https://forge.glassmkr.com/docs/alerts)
-- [Troubleshooting](https://forge.glassmkr.com/docs/troubleshooting)
-- [API Reference](https://forge.glassmkr.com/docs/api)
+- [Getting Started](https://app.glassmkr.com/docs/getting-started)
+- [Configuration Reference](https://app.glassmkr.com/docs/configuration)
+- [Alert Rules (38)](https://app.glassmkr.com/docs/alerts)
+- [Troubleshooting](https://app.glassmkr.com/docs/troubleshooting)
+- [API Reference](https://app.glassmkr.com/docs/api)
 
 ## License
 

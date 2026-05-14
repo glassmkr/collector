@@ -46,7 +46,7 @@ export interface InitDeps {
   readStdin: () => Promise<string>;
 }
 
-export const DEFAULT_INGEST_URL = "https://forge.glassmkr.com/api/v1/ingest";
+export const DEFAULT_INGEST_URL = "https://app.glassmkr.com/api/v1/ingest";
 export const DEFAULT_CONFIG_PATH = "/etc/glassmkr/collector.yaml";
 export const SYSTEMD_UNIT_PATH = "/etc/systemd/system/glassmkr-crucible.service";
 
@@ -69,7 +69,7 @@ export function buildCollectorYaml(serverName: string, ingestUrl: string, apiKey
     `  interval_seconds: 300`,
     `  ipmi: true`,
     `  smart: true`,
-    `forge:`,
+    `dashboard:`,
     `  enabled: true`,
     `  url: "${escapeDoubleQuoted(ingestUrl.replace(/\/api\/v1\/ingest$/, ""))}"`,
     `  api_key: "${apiKey}"`,
@@ -139,7 +139,7 @@ export async function runInit(opts: InitOptions, deps: InitDeps): Promise<number
       });
       clearTimeout(timer);
       if (resp.status === 401 || resp.status === 403) {
-        deps.error(`[init] api key rejected by ${ingestUrl} (HTTP ${resp.status}). Double-check the key in your Forge dashboard.`);
+        deps.error(`[init] api key rejected by ${ingestUrl} (HTTP ${resp.status}). Double-check the key in your Glassmkr dashboard.`);
         return 3;
       }
       if (resp.status >= 500) {

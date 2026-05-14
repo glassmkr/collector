@@ -5,7 +5,7 @@ import type { Snapshot } from "../lib/types.js";
 
 let agent: https.Agent | undefined;
 
-export function initForgeAgent(tlsPin?: string): void {
+export function initDashboardAgent(tlsPin?: string): void {
   if (!tlsPin) {
     agent = undefined; // Use default (Node built-in fetch)
     return;
@@ -34,7 +34,7 @@ export function initForgeAgent(tlsPin?: string): void {
   });
 }
 
-export async function pushToForge(url: string, apiKey: string, snapshot: Snapshot): Promise<boolean> {
+export async function pushToDashboard(url: string, apiKey: string, snapshot: Snapshot): Promise<boolean> {
   // If TLS pinning is enabled, use https.request (fetch doesn't support custom agents)
   if (agent) {
     return pushWithAgent(url, apiKey, snapshot);
@@ -50,13 +50,13 @@ export async function pushToForge(url: string, apiKey: string, snapshot: Snapsho
     });
     if (response.ok) {
       const data = await response.json() as { active_alerts?: number };
-      console.log(`[forge] Push successful. Active alerts: ${data.active_alerts ?? 0}`);
+      console.log(`[dashboard] Push successful. Active alerts: ${data.active_alerts ?? 0}`);
     } else {
-      console.error(`[forge] Push failed: ${response.status} ${response.statusText}`);
+      console.error(`[dashboard] Push failed: ${response.status} ${response.statusText}`);
     }
     return response.ok;
   } catch (err) {
-    console.error("[forge] Push failed, will retry next cycle");
+    console.error("[dashboard] Push failed, will retry next cycle");
     return false;
   }
 }
@@ -85,18 +85,18 @@ function pushWithAgent(url: string, apiKey: string, snapshot: Snapshot): Promise
         if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
           try {
             const parsed = JSON.parse(data);
-            console.log(`[forge] Push successful (pinned). Active alerts: ${parsed.active_alerts ?? 0}`);
+            console.log(`[dashboard] Push successful (pinned). Active alerts: ${parsed.active_alerts ?? 0}`);
           } catch { /* ignore parse errors */ }
           resolve(true);
         } else {
-          console.error(`[forge] Push failed (pinned): ${res.statusCode}`);
+          console.error(`[dashboard] Push failed (pinned): ${res.statusCode}`);
           resolve(false);
         }
       });
     });
 
     req.on("error", (err) => {
-      console.error(`[forge] Push failed (pinned): ${err.message}`);
+      console.error(`[dashboard] Push failed (pinned): ${err.message}`);
       resolve(false);
     });
     req.on("timeout", () => {

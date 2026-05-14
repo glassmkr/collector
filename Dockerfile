@@ -55,5 +55,5 @@ LABEL org.opencontainers.image.source="https://github.com/glassmkr/crucible" \
       org.opencontainers.image.title="Crucible" \
       org.opencontainers.image.vendor="Glassmkr"
 
-# Crucible does not listen on any port; data flows outbound to Forge.
+# Crucible does not listen on any port; data flows outbound to Dashboard.
 ENTRYPOINT ["node", "/app/dist/index.js"]
