@@ -21,7 +21,7 @@ export interface Snapshot {
   ntp?: NtpData;
   file_descriptors?: FileDescriptorData;
   // Planned-reboot flag: set only on the first snapshot after a reboot
-  // that was marked with `crucible-agent mark-reboot` / `reboot`. Forge
+  // that was marked with `crucible-agent mark-reboot` / `reboot`. Dashboard
   // reads this to suppress the `unexpected_reboot` rule. Single-use:
   // subsequent snapshots don't carry it.
   expected_reboot?: boolean;
@@ -87,7 +87,7 @@ export interface SystemInfo {
   os: string;
   /** `ID=` from /etc/os-release, lowercased. e.g. "ubuntu", "debian", "rocky", "arch", "alpine". */
   os_id?: string;
-  /** `ID_LIKE=` from /etc/os-release, lowercased, space-separated. Used by Forge
+  /** `ID_LIKE=` from /etc/os-release, lowercased, space-separated. Used by Dashboard
    *  to pick distro-family-specific fix command variants. e.g. on Rocky this
    *  is "rhel centos fedora"; on Ubuntu it is "debian". */
   os_id_like?: string;
@@ -231,7 +231,7 @@ export type IpmiCapability =
 
 export interface IpmiInfo {
   available: boolean;
-  /** One-shot startup detection result; helps Forge surface "IPMI not
+  /** One-shot startup detection result; helps Dashboard surface "IPMI not
    *  available on this host" with a precise reason. Not present on
    *  pre-detection snapshots (older agent versions). */
   detection?: IpmiCapability;
@@ -248,7 +248,7 @@ export interface IpmiInfo {
    * Distinguishes "we have a real zero reading from the BMC" from "we
    * couldn't ask". Before 0.9.4 this was always `{ correctable: 0,
    * uncorrectable: 0 }` even when IPMI was unavailable, which made the
-   * Forge dashboard render "ECC: 0 / 0" on boxes that aren't being
+   * Dashboard dashboard render "ECC: 0 / 0" on boxes that aren't being
    * probed. glassmkr#29 / cross-vendor IPMI audit Phase 1.
    */
   ecc_errors: { correctable: number; uncorrectable: number } | null;

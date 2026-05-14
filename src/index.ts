@@ -82,7 +82,7 @@ import { updateAlertState } from "./alerts/state.js";
 import { sendTelegram } from "./notify/telegram.js";
 import { sendSlack } from "./notify/slack.js";
 import { sendEmail } from "./notify/email.js";
-import { pushToForge, initForgeAgent } from "./push/forge.js";
+import { pushToDashboard, initDashboardAgent } from "./push/dashboard.js";
 import { collectSecurity, type SecurityData } from "./collect/security.js";
 import { collectZfs } from "./collect/zfs.js";
 import { collectIoErrors } from "./collect/io-errors.js";
@@ -111,7 +111,7 @@ const config = loadConfig(cliArgs.configPath);
 
 console.log(`[collector] Starting. Server: ${config.server_name}. Interval: ${config.collection.interval_seconds}s`);
 console.log(`[collector] IPMI: ${config.collection.ipmi ? "enabled" : "disabled"}, SMART: ${config.collection.smart ? "enabled" : "disabled"}`);
-console.log(`[collector] Forge: ${config.forge.enabled ? config.forge.url : "disabled"}`);
+console.log(`[collector] Dashboard: ${config.dashboard.enabled ? config.dashboard.url : "disabled"}`);
 console.log(`[collector] Prometheus: ${config.prometheus.enabled ? `:${config.prometheus.port}/metrics` : "disabled"}`);
 
 // Start Prometheus metrics server if enabled
@@ -119,10 +119,10 @@ if (config.prometheus.enabled) {
   startMetricsServer(config.prometheus.port);
 }
 
-// Initialize TLS pinning for Forge if configured
-if (config.forge.tls_pin) {
-  initForgeAgent(config.forge.tls_pin);
-  console.log("[collector] TLS pinning enabled for Forge");
+// Initialize TLS pinning for Dashboard if configured
+if (config.dashboard.tls_pin) {
+  initDashboardAgent(config.dashboard.tls_pin);
+  console.log("[collector] TLS pinning enabled for Dashboard");
 }
 
 // Returned when IPMI collection is disabled by config. `null` ecc/SEL
@@ -274,13 +274,13 @@ async function collect() {
     }
   }
 
-  // Push to Forge (non-blocking)
-  if (config.forge.enabled && config.forge.api_key) {
-    pushToForge(config.forge.url, config.forge.api_key, snapshot);
+  // Push to Dashboard (non-blocking)
+  if (config.dashboard.enabled && config.dashboard.api_key) {
+    pushToDashboard(config.dashboard.url, config.dashboard.api_key, snapshot);
   }
 
   // Check for updates (every 6 hours, non-blocking)
-  checkForUpdates(config.forge.enabled ? config.forge.url : undefined);
+  checkForUpdates(config.dashboard.enabled ? config.dashboard.url : undefined);
 
   // Print summary on first run
   if (firstRun) {
@@ -301,7 +301,7 @@ async function collect() {
       console.log(`Thermal: ${t.source === "none" ? "no CPU sensors" : `${t.source} (${t.cpu_readings.length} CPU reading(s)${max})`}`);
     }
     console.log(`Active alerts: ${alertResults.length}`);
-    console.log(`Forge: ${config.forge.enabled ? "enabled" : "disabled"}`);
+    console.log(`Dashboard: ${config.dashboard.enabled ? "enabled" : "disabled"}`);
     console.log("");
   }
 }

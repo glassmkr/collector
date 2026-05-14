@@ -10,11 +10,11 @@ collection:
   ipmi: true                   # Collect IPMI data (requires ipmitool)
   smart: true                  # Collect SMART data (requires smartmontools)
 
-# Forge integration (optional dashboard)
-forge:
+# Dashboard integration (optional dashboard)
+dashboard:
   enabled: false
-  url: "https://forge.glassmkr.com"
-  api_key: ""                  # Get this from forge.glassmkr.com after registering a server
+  url: "https://app.glassmkr.com"
+  api_key: ""                  # Get this from app.glassmkr.com after registering a server
 
 # Alert thresholds (all optional, sensible defaults used if omitted)
 thresholds:

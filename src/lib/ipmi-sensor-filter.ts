@@ -5,7 +5,7 @@
 // hotter than the actual AMD die temperature read directly via the
 // kernel's k10temp driver. The same boards also expose a much closer
 // `CPU<N>_TEMP` sensor on each socket. The IPMI fallback path of
-// Forge's `cpu_temperature_high` evaluator picks the maximum across
+// Dashboard's `cpu_temperature_high` evaluator picks the maximum across
 // all CPU thermal sensors, which over-fires when both are present.
 //
 // Fix: when the IPMI sensor list contains both `CPU<N>_TEMP` and

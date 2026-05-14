@@ -3,7 +3,7 @@
 // An operator signals "the next reboot is expected, don't page me"
 // by writing a short-lived JSON file to disk BEFORE rebooting. The
 // collector reads and deletes it on agent startup; the first
-// post-boot snapshot then carries `expected_reboot: true` so Forge's
+// post-boot snapshot then carries `expected_reboot: true` so Dashboard's
 // unexpected_reboot rule stays quiet.
 //
 // Single-use (deleted on read regardless of validity) and TTL-guarded

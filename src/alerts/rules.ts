@@ -1,6 +1,6 @@
 // Collector-side alert rules. Currently 23 rules covering RAM/swap/disk,
 // CPU, SMART, RAID, network, IPMI thermal/ECC/PSU/SEL/fan, and security.
-// Forge runs an additional set of server-side rules on top of these
+// Dashboard runs an additional set of server-side rules on top of these
 // (predictive, fleet-wide). See RULES_COUNT.md (TBD) for the canonical
 // customer-facing total.
 //
@@ -14,7 +14,7 @@ import { isPsuSensor, classifyPsuSensorBitmask } from "../lib/vendor-sensors.js"
 
 /**
  * True iff a sensor reading is a temperature reading. Mirrors the
- * helper in Forge's evaluator so both sides agree. Defensive against
+ * helper in Dashboard's evaluator so both sides agree. Defensive against
  * case differences and the SI "degrees C" spelling. Without this
  * gate, the cpu_temperature_high IPMI fallback would false-fire on
  * any sensor whose name contained "cpu" or "temp" (e.g. CPU_FAN at
@@ -37,7 +37,7 @@ export interface AlertRule {
 
 /**
  * Stable, ordered list of every rule ID this collector ships. Exported as
- * a public API so downstream tooling (Glassmkr's drift validator, Forge's
+ * a public API so downstream tooling (Glassmkr's drift validator, Dashboard's
  * UI registry) can verify both sides agree on what exists. When you add
  * or remove a rule, this list updates automatically — but RULES.json in
  * the Glassmkr monorepo is hand-maintained and must be updated separately.

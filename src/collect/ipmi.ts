@@ -16,7 +16,7 @@ import { filterRedundantCpuDtsSensors } from "../lib/ipmi-sensor-filter.js";
 export async function collectIpmi(vendor: Vendor = "generic", capability?: IpmiCapability): Promise<IpmiInfo> {
   if (capability && !capability.available) {
     // No probe possible — distinguish "we couldn't ask" from "BMC said
-    // zero". Forge schema accepts both shapes; dashboard renders null
+    // zero". Dashboard schema accepts both shapes; dashboard renders null
     // as "no signal" not "0 errors observed". glassmkr#29.
     return {
       available: false,
@@ -215,7 +215,7 @@ export function parseSelTimestamp(date: string, time: string): string {
   //   "14:23:05"
   //   "09:05:27 UTC"  (Supermicro X11/X12 BMCs append a UTC suffix)
   // Pre-fix the function emitted shapes like "23-06-17T09:05:27 UTCZ"
-  // which Forge's evaluator couldn't parse for the time-window check.
+  // which Dashboard's evaluator couldn't parse for the time-window check.
   // Normalise to strict ISO-8601: 4-digit year, no trailing UTC.
   // glassmkr#24 / Codex experiment 2026-05-12.
   const parts = date.split("/");

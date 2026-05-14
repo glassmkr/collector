@@ -11,9 +11,9 @@ const ConfigSchema = z.object({
     thermal: z.boolean().default(true),
     dmi: z.boolean().default(true),
   }).default({}),
-  forge: z.object({
+  dashboard: z.object({
     enabled: z.boolean().default(false),
-    url: z.string().default("https://forge.glassmkr.com"),
+    url: z.string().default("https://app.glassmkr.com"),
     api_key: z.string().default(""),
     tls_pin: z.string().default(""),
   }).default({}),

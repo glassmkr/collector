@@ -8,12 +8,12 @@ export function getCurrentVersion(): string {
   return CURRENT_VERSION;
 }
 
-export async function checkForUpdates(forgeUrl?: string): Promise<void> {
+export async function checkForUpdates(dashboardUrl?: string): Promise<void> {
   const now = Date.now();
   if (now - lastCheckTime < CHECK_INTERVAL) return;
   lastCheckTime = now;
 
-  const url = forgeUrl || "https://forge.glassmkr.com";
+  const url = dashboardUrl || "https://app.glassmkr.com";
   try {
     const res = await fetch(`${url}/api/v1/version`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return;

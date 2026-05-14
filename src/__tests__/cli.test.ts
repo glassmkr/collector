@@ -101,10 +101,10 @@ describe("init subcommand parsing", () => {
   });
   it("init --name and --ingest-url and --config-path are captured", () => {
     const { result } = parseCliArgs([
-      "init", "--api-key", "k", "--name", "web-01", "--ingest-url", "https://forge.example.com/api/v1/ingest", "--config-path", "/etc/x.yaml",
+      "init", "--api-key", "k", "--name", "web-01", "--ingest-url", "https://dashboard.example.com/api/v1/ingest", "--config-path", "/etc/x.yaml",
     ], "0.9.1");
     expect(result.init?.name).toBe("web-01");
-    expect(result.init?.ingestUrl).toBe("https://forge.example.com/api/v1/ingest");
+    expect(result.init?.ingestUrl).toBe("https://dashboard.example.com/api/v1/ingest");
     expect(result.init?.configPath).toBe("/etc/x.yaml");
   });
   it("init --help returns help text instead of running init", () => {

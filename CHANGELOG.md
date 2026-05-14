@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Pre-1.0 convention: minor bumps may include breaking changes; we call them
 out under `### Breaking` so downstream consumers can audit.
 
+## [0.10.0] - 2026-05-14
+
+### Breaking
+
+- **Config schema key rename.** Top-level `forge:` block is now
+  `dashboard:`. Existing `collector.yaml` files using the old key fail
+  to parse with a Zod error pointing at the missing `dashboard:` field.
+  Edit your config: replace `forge:` with `dashboard:` (everything
+  nested stays the same). The old key is **not** accepted as a
+  deprecated alias — clean break per the "Forge → Dashboard" workstream
+  spec.
+- **Default ingest endpoint.** The hardcoded default for fresh installs
+  is now `https://app.glassmkr.com/api/v1/ingest` (was
+  `https://forge.glassmkr.com/api/v1/ingest`). Anyone relying on the
+  default needs to wait for the corresponding DNS cutover so
+  `app.glassmkr.com` resolves, or set `dashboard.url` explicitly.
+
+### Changed
+
+- Log prefix `[forge]` → `[dashboard]` on the push pipeline.
+- Internal source rename `src/push/forge.ts` → `src/push/dashboard.ts`;
+  exports `pushToDashboard` / `initDashboardAgent` (were `pushToForge`
+  / `initForgeAgent`). Affects anyone importing from
+  `@glassmkr/crucible/push` programmatically (very small audience).
+- README, CLI `--help`, init wizard, and example
+  `collector.example.yaml` updated to reference the Glassmkr Dashboard
+  instead of "Forge".
+- Error message wording: "Double-check the key in your Forge dashboard."
+  → "...your Glassmkr dashboard."
+
+### Migration steps
+
+1. Edit `/etc/glassmkr/collector.yaml` (or wherever the config lives):
+   replace the top-level `forge:` key with `dashboard:`. Indented
+   content (url, api_key, tls_pin) stays identical.
+2. If you relied on the URL default: either set `dashboard.url`
+   explicitly, or upgrade after the dashboard's DNS cutover so
+   `app.glassmkr.com` resolves.
+3. `sudo npm install -g @glassmkr/crucible@latest && sudo systemctl restart glassmkr-crucible`
+
 ## [0.9.3] - 2026-05-13
 
 ### Fixed
