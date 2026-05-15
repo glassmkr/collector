@@ -4,9 +4,9 @@
 [![npm version](https://img.shields.io/npm/v/@glassmkr/crucible.svg)](https://www.npmjs.com/package/@glassmkr/crucible)
 
 <!-- Canonical rule count: see RULES_COUNT.md in the Glassmkr monorepo. -->
-Lightweight bare metal server monitoring agent. Collects hardware and OS health every 5 minutes and pushes snapshots to a [Dashboard](https://app.glassmkr.com) dashboard, which evaluates 38 alert rules and sends notifications.
+Lightweight bare metal server monitoring agent. Collects hardware and OS health every 5 minutes and pushes snapshots to the [Glassmkr Dashboard](https://app.glassmkr.com), which evaluates 38 alert rules and sends notifications.
 
-Open source. MIT licensed. Built by [Glassmkr](https://glassmkr.com). See also [Bench](https://github.com/glassmkr/bench), the MCP server collection.
+Open source. MIT licensed. Built by [Glassmkr](https://glassmkr.com). See also the [Bench MCP packages](https://glassmkr.com/docs/mcp) (`@glassmkr/bench-*` on npm) for AI-tool access to your Glassmkr fleet.
 
 **Resource usage:** ~90MB RSS memory (varies by hardware: servers with more IPMI sensors use more), <0.1% CPU at 5-minute collection interval. Collects IPMI, SMART, ZFS, network bonds, security posture, conntrack, systemd, NTP, and file descriptors.
 
@@ -31,7 +31,7 @@ agent, and runs `glassmkr-crucible init` to validate your key, write
 service.
 
 ```bash
-curl -sf https://app.glassmkr.com/install | bash -s -- --api-key gmk_cru_live_<your-key>
+curl -sf https://glassmkr.com/install.sh | bash -s -- --api-key gmk_cru_live_<your-key>
 ```
 
 Or run the steps yourself:
@@ -62,7 +62,7 @@ collection:
 dashboard:
   enabled: true
   url: "https://app.glassmkr.com"
-  api_key: "col_YOUR_KEY_HERE"
+  api_key: "gmk_cru_live_YOUR_KEY_HERE"
 EOF
 
 # Run with docker compose
@@ -77,7 +77,7 @@ Images are published to [ghcr.io/glassmkr/crucible](https://github.com/glassmkr/
 
 ## Quick Start
 
-1. Create an API key in the Dashboard dashboard (Servers → Add server).
+1. Create an API key in the Glassmkr Dashboard (Servers → Add server).
 2. Run `init`:
 
    ```bash
@@ -90,7 +90,7 @@ Images are published to [ghcr.io/glassmkr/crucible](https://github.com/glassmkr/
    you want to inspect the unit before enabling it. Pass `--api-key -`
    to read the key from stdin (handy for password-manager pipes).
 
-   Snapshots appear in the Dashboard dashboard within seconds of the first
+   Snapshots appear in the Glassmkr Dashboard within seconds of the first
    push.
 
 If you can't or won't run `init` (config-management is doing it for
@@ -132,14 +132,36 @@ dashboard:
 Hand-edit any time. The agent re-reads on restart. Run
 `glassmkr-crucible init --help` for the full flag list.
 
-### Migrating from a manual install
+### Migrating from 0.9.x to 0.10.x
 
-Existing 0.9.0 installs with a hand-written `collector.yaml` and
-systemd unit continue working unchanged on 0.9.1. No migration is
-required.
+**Breaking change in 0.10.0**: the top-level config block was renamed
+from `forge:` to `dashboard:`, and the default endpoint changed from
+`forge.glassmkr.com` to `app.glassmkr.com`. Edit your existing
+`/etc/glassmkr/collector.yaml`:
 
-For new boxes, prefer `init`. To migrate an existing manual install
-to the canonical layout, stop the service, run `init --force`, restart:
+```yaml
+# OLD (0.9.x):
+forge:
+  enabled: true
+  url: "https://forge.glassmkr.com"
+  api_key: "gmk_cru_live_..."
+
+# NEW (0.10+):
+dashboard:
+  enabled: true
+  url: "https://app.glassmkr.com"
+  api_key: "gmk_cru_live_..."
+```
+
+The `api_key` value itself is unchanged — only the parent key
+(`forge:` → `dashboard:`) and the endpoint hostname need updating.
+After the edit, restart the service:
+
+```bash
+sudo systemctl restart glassmkr-crucible
+```
+
+For a clean reinstall from scratch, prefer `init --force`:
 
 ```bash
 sudo systemctl stop glassmkr-crucible
@@ -216,7 +238,7 @@ sudo systemctl status glassmkr-crucible
 
 If you ever upgrade `@glassmkr/crucible` and the binary moves (rare, but
 possible on a distro change), re-run the `command -v` step and update the
-unit file. The bootstrap script at `https://app.glassmkr.com/install` does
+unit file. The bootstrap script at `https://glassmkr.com/install.sh` does
 this detection automatically; the manual flow above is just the equivalent.
 
 ## What It Collects
